@@ -124,3 +124,31 @@ test("route handler: stats contract and missing-sessionQuery fallback", async ()
   const failing = { stats: { stats: async () => { throw new Error("boom"); } } };
   await assert.rejects(() => handleGetStats(failing, 30), (error) => error instanceof HttpError ? false : true);
 });
+
+test(
+  "stats: days=1 means calendar today (since local midnight)",
+  { skip: zstdAvailable ? false : "zstd not installed" },
+  async () => {
+    const root = await mkdtemp(join(tmpdir(), "dsm-stats-"));
+    const midnight = new Date();
+    midnight.setHours(0, 0, 0, 0);
+    const yesterdayLate = midnight.getTime() - 3_600_000; // 23:00 yesterday
+    const todayEarly = midnight.getTime() + 3_600_000; // 01:00 today
+    await seedSession(root, "--ws--", "session-y", [
+      usageLine({ time: yesterdayLate, provider: "p", model: "m", input: 10, output: 1, total: 11, cacheRead: 0 }),
+    ]);
+    await seedSession(root, "--ws--", "session-t", [
+      usageLine({ time: todayEarly, provider: "p", model: "m", input: 20, output: 2, total: 22, cacheRead: 0 }),
+    ]);
+    const collector = openStatsCollector({ sessionsSource: root, logger: silentLogger });
+    const today = await collector.stats({ days: 1 });
+    assert.equal(today.summary.requests, 1);
+    assert.equal(today.summary.total, 22);
+    assert.deepEqual(today.byDate.map((d) => d.date), [
+      `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, "0")}-${String(new Date().getDate()).padStart(2, "0")}`,
+    ]);
+    // 7-day rolling window still includes yesterday's event.
+    const week = await collector.stats({ days: 7 });
+    assert.equal(week.summary.requests, 2);
+  },
+);

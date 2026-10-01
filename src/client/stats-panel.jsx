@@ -11,6 +11,7 @@ import { useCallback, useEffect, useState } from "react";
 import { fetchStats } from "./api.js";
 
 const RANGES = [
+  { days: 1, label: "statsRangeToday" },
   { days: 7, label: "statsRange7" },
   { days: 30, label: "statsRange30" },
   { days: 90, label: "statsRange90" },
@@ -28,7 +29,7 @@ function formatTokens(value) {
 
 export function StatsPanel({ t }) {
   const [data, setData] = useState(null);
-  const [days, setDays] = useState(30);
+  const [days, setDays] = useState(1);
   const [phase, setPhase] = useState("loading");
   const [errorMsg, setErrorMsg] = useState("");
 
