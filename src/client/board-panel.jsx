@@ -9,7 +9,7 @@
  * sparse until a human annotation is saved.
  */
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { fetchBoard, postAnnotation } from "./api.js";
+import { fetchBoard, fetchTrellis, postAnnotation } from "./api.js";
 import { subscribeAnnotationsChanged } from "./annotate-bus.js";
 import {
   DEFAULT_PRIORITY_ID,
@@ -58,6 +58,36 @@ function formatRelative(timestamp) {
   return new Date(timestamp).toLocaleDateString();
 }
 
+/** dir slug → task title, flattened from the read-only Trellis scan. */
+function taskTitleMap(workspaces) {
+  const titles = new Map();
+  for (const workspace of workspaces) {
+    if (!workspace.hasTrellis) continue;
+    const walk = (node) => {
+      titles.set(node.dir, node.title);
+      for (const child of node.children ?? []) walk(child);
+    };
+    for (const root of workspace.roots ?? []) walk(root);
+    for (const task of workspace.standalone ?? []) titles.set(task.dir, task.title);
+  }
+  return titles;
+}
+
+/** Free-text search across everything visible on (or under) a row. */
+function matchesSearch(session, query, taskTitles) {
+  const annotation = session.annotation;
+  const parts = [
+    session.displayTitle,
+    session.cwd,
+    session.workspaceTitle,
+    annotation?.notes,
+    annotation?.taskId,
+    annotation?.taskId !== undefined ? taskTitles.get(annotation.taskId) : undefined,
+    ...(annotation?.tags ?? []),
+  ];
+  return parts.some((part) => typeof part === "string" && part.toLowerCase().includes(query));
+}
+
 export function BoardPanel({ t, openSession }) {
   const [data, setData] = useState(null);
   const [phase, setPhase] = useState("loading");
@@ -67,13 +97,18 @@ export function BoardPanel({ t, openSession }) {
   const [sortDesc, setSortDesc] = useState(true);
   const [showFilters, setShowFilters] = useState(false);
   const [filters, setFilters] = useState(emptyFilters);
+  const [search, setSearch] = useState("");
+  const [taskTitles, setTaskTitles] = useState(() => new Map());
 
   const load = useCallback(async () => {
     setPhase("loading");
     setErrorMsg("");
     try {
-      const board = await fetchBoard();
+      // The Trellis scan rides along (fail-soft) so linked-task badges and
+      // search can resolve taskId slugs to task titles.
+      const [board, trellis] = await Promise.all([fetchBoard(), fetchTrellis().catch(() => null)]);
       setData(board);
+      setTaskTitles(taskTitleMap(trellis?.workspaces ?? []));
       setPhase("ready");
     } catch (reason) {
       setErrorMsg(reason instanceof Error ? reason.message : String(reason));
@@ -105,14 +140,19 @@ export function BoardPanel({ t, openSession }) {
 
   const visible = useMemo(() => {
     const sessions = data?.sessions ?? [];
+    const query = search.trim().toLowerCase();
+    const searched =
+      query === ""
+        ? sessions
+        : sessions.filter((session) => matchesSearch(session, query, taskTitles));
     const anyFilter =
       filters.categories.size > 0 ||
       filters.statuses.size > 0 ||
       filters.priorities.size > 0 ||
       filters.tags.size > 0 ||
       filters.unannotatedOnly;
-    if (!anyFilter) return sessions;
-    return sessions.filter((session) => {
+    if (!anyFilter) return searched;
+    return searched.filter((session) => {
       const annotation = session.annotation;
       if (filters.unannotatedOnly && annotation !== null) return false;
       if (filters.categories.size > 0 && !filters.categories.has(annotation?.category ?? UNANNOTATED_KEY)) return false;
@@ -125,7 +165,7 @@ export function BoardPanel({ t, openSession }) {
       }
       return true;
     });
-  }, [data, filters]);
+  }, [data, filters, search, taskTitles]);
 
   const sorted = useMemo(() => {
     const order = sortDesc ? -1 : 1;
@@ -192,6 +232,14 @@ export function BoardPanel({ t, openSession }) {
         <span className="dsm-board-title">{t("panelTitle")}</span>
         <span className="dsm-board-count">{t("sessionsCount", { count: String(total) })}</span>
         <span className="dsm-board-spacer" />
+        <input
+          className="dsm-input dsm-search"
+          value={search}
+          placeholder={t("searchPlaceholder")}
+          spellCheck={false}
+          aria-label={t("searchPlaceholder")}
+          onChange={(event) => setSearch(event.target.value)}
+        />
         <button
           type="button"
           className="dsm-chip"
@@ -305,6 +353,7 @@ export function BoardPanel({ t, openSession }) {
             sessions={sorted}
             taxonomy={taxonomy}
             maps={maps}
+            taskTitles={taskTitles}
             t={t}
             onOpen={openSessionById}
             onQuickPatch={quickPatch}
@@ -315,6 +364,7 @@ export function BoardPanel({ t, openSession }) {
             groupBy={groupBy}
             taxonomy={taxonomy}
             maps={maps}
+            taskTitles={taskTitles}
             t={t}
             onOpen={openSessionById}
             onQuickPatch={quickPatch}
@@ -345,7 +395,7 @@ function FilterRow({ name, options, selected, onToggle }) {
   );
 }
 
-function GroupView({ sessions, groupBy, taxonomy, maps, t, onOpen, onQuickPatch }) {
+function GroupView({ sessions, groupBy, taxonomy, maps, taskTitles, t, onOpen, onQuickPatch }) {
   const groups = useMemo(() => {
     const buckets = new Map();
     const push = (key, session) => {
@@ -415,6 +465,7 @@ function GroupView({ sessions, groupBy, taxonomy, maps, t, onOpen, onQuickPatch 
           session={session}
           taxonomy={taxonomy}
           maps={maps}
+          taskTitles={taskTitles}
           t={t}
           onOpen={onOpen}
           onQuickPatch={onQuickPatch}
@@ -424,7 +475,7 @@ function GroupView({ sessions, groupBy, taxonomy, maps, t, onOpen, onQuickPatch 
   ));
 }
 
-function QuadrantView({ sessions, taxonomy, maps, t, onOpen, onQuickPatch }) {
+function QuadrantView({ sessions, taxonomy, maps, taskTitles, t, onOpen, onQuickPatch }) {
   const quadrants = useMemo(() => {
     const quadrants = { urgentImportant: [], importantNotUrgent: [], urgentNotImportant: [], neither: [] };
     for (const session of sessions) {
@@ -463,6 +514,7 @@ function QuadrantView({ sessions, taxonomy, maps, t, onOpen, onQuickPatch }) {
                 session={session}
                 taxonomy={taxonomy}
                 maps={maps}
+                taskTitles={taskTitles}
                 t={t}
                 onOpen={onOpen}
                 onQuickPatch={onQuickPatch}
@@ -475,12 +527,14 @@ function QuadrantView({ sessions, taxonomy, maps, t, onOpen, onQuickPatch }) {
   );
 }
 
-function BoardRow({ session, taxonomy, maps, t, onOpen, onQuickPatch }) {
+function BoardRow({ session, taxonomy, maps, taskTitles, t, onOpen, onQuickPatch }) {
   const annotation = session.annotation;
   // Status/priority are always shown at their effective values: every
   // session is 待办/一般 by default until a human annotation overrides it.
   const statusId = effectiveStatusId(annotation, taxonomy);
   const priorityId = effectivePriorityId(annotation, taxonomy);
+  const linkedTaskTitle =
+    annotation?.taskId !== undefined ? (taskTitles?.get(annotation.taskId) ?? annotation.taskId) : undefined;
   const sub = [
     session.workspaceTitle ?? session.cwd ?? "",
     formatRelative(session.updatedAt),
@@ -520,6 +574,11 @@ function BoardRow({ session, taxonomy, maps, t, onOpen, onQuickPatch }) {
         <span className="dsm-badge" data-kind={priorityId}>
           {maps.priorities.get(priorityId) ?? priorityId}
         </span>
+        {linkedTaskTitle !== undefined && (
+          <span className="dsm-badge" title={annotation.taskId}>
+            {linkedTaskTitle}
+          </span>
+        )}
         {annotation !== null && (
           <>
             {(annotation.tags ?? []).slice(0, 3).map((tag) => (

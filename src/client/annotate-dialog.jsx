@@ -1,6 +1,7 @@
 /**
  * The annotation dialog: category (tree), tags (multi + create), status,
- * priority, notes. Opened from the session row menu item and the hover icon.
+ * priority, linked Trellis task, notes. Opened from the session row menu
+ * item and the hover icon.
  *
  * Uses the platform-baseline `Modal` primitive (body-portaled, Escape and
  * mask handling included) so the dialog matches official chrome without
@@ -8,7 +9,7 @@
  */
 import { useEffect, useMemo, useState } from "react";
 import { Modal } from "@deepseek-ai/dsh-client-ui-primitives";
-import { fetchAnnotations, postAnnotation } from "./api.js";
+import { fetchAnnotations, fetchTrellis, postAnnotation } from "./api.js";
 import { DEFAULT_PRIORITY_ID, DEFAULT_STATUS_ID } from "./annotation-defaults.js";
 
 // A fresh annotation starts from the board-wide effective defaults
@@ -33,9 +34,12 @@ export function AnnotateDialog({ open, onClose, sessionId, displayTitle, onSaved
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [taxonomy, setTaxonomy] = useState(null);
+  const [taskGroups, setTaskGroups] = useState([]);
 
   // Prefill from the sidecar each time the dialog opens; the store snapshot
-  // also carries the taxonomy the pickers render from.
+  // also carries the taxonomy the pickers render from. The Trellis task
+  // list is fetched in parallel (fail-soft: without it the linked-task
+  // select just shows the stored value).
   useEffect(() => {
     if (!open || !sessionId) return;
     let cancelled = false;
@@ -44,6 +48,7 @@ export function AnnotateDialog({ open, onClose, sessionId, displayTitle, onSaved
     setNewTag("");
     setNewCategory("");
     setTaxonomy(null);
+    setTaskGroups([]);
     fetchAnnotations()
       .then((store) => {
         if (cancelled) return;
@@ -56,6 +61,7 @@ export function AnnotateDialog({ open, onClose, sessionId, displayTitle, onSaved
                 tags: [...(existing.tags ?? [])],
                 status: existing.status ?? DEFAULT_STATUS_ID,
                 priority: existing.priority ?? DEFAULT_PRIORITY_ID,
+                taskId: existing.taskId,
                 notes: existing.notes ?? "",
               }
             : EMPTY,
@@ -63,6 +69,14 @@ export function AnnotateDialog({ open, onClose, sessionId, displayTitle, onSaved
       })
       .catch(() => {
         // Prefill failure is non-fatal: the dialog still starts from defaults.
+      });
+    fetchTrellis()
+      .then((value) => {
+        if (cancelled) return;
+        setTaskGroups(collectTaskGroups(value?.workspaces ?? []));
+      })
+      .catch(() => {
+        // No .trellis anywhere: the linked-task select stays empty.
       });
     return () => {
       cancelled = true;
@@ -124,12 +138,13 @@ export function AnnotateDialog({ open, onClose, sessionId, displayTitle, onSaved
       const notes = draft.notes.trim();
       const annotation = {
         // null = explicit clear: the dialog is a full editor, so a deselected
-        // category / emptied notes must clear the stored values (a partial
-        // patch that omits the field would keep them).
+        // category / emptied notes / unlinked task must clear the stored
+        // values (a partial patch that omits the field would keep them).
         category: draft.category ?? null,
         tags: draft.tags,
         status: draft.status,
         priority: draft.priority,
+        taskId: draft.taskId ?? null,
         notes: notes === "" ? null : notes,
       };
       await postAnnotation({ sessionId, annotation });
@@ -278,6 +293,34 @@ export function AnnotateDialog({ open, onClose, sessionId, displayTitle, onSaved
           </div>
         </div>
         <div className="dsm-dialog-field">
+          <span className="dsm-dialog-label">{t("linkedTask")}</span>
+          <select
+            className="dsm-input"
+            value={draft.taskId ?? ""}
+            aria-label={t("linkedTask")}
+            onChange={(event) =>
+              setDraft((prev) => ({ ...prev, taskId: event.target.value === "" ? undefined : event.target.value }))
+            }
+          >
+            <option value="">{t("noLinkedTask")}</option>
+            {taskGroups.map((group) => (
+              <optgroup key={group.workspaceTitle} label={group.workspaceTitle}>
+                {group.tasks.map((task) => (
+                  <option key={task.dir} value={task.dir}>
+                    {task.title}
+                  </option>
+                ))}
+              </optgroup>
+            ))}
+            {draft.taskId !== undefined && !taskGroups.some((group) => group.tasks.some((task) => task.dir === draft.taskId)) && (
+              // The linked task is not in the scanned list (archived, or the
+              // trellis fetch failed): keep the stored value selectable so
+              // saving does not silently drop the link.
+              <option value={draft.taskId}>{`${draft.taskId}（${t("linkedTaskMissing")}）`}</option>
+            )}
+          </select>
+        </div>
+        <div className="dsm-dialog-field">
           <span className="dsm-dialog-label">{t("notes")}</span>
           <textarea
             className="dsm-textarea"
@@ -301,4 +344,26 @@ export function AnnotateDialog({ open, onClose, sessionId, displayTitle, onSaved
       </div>
     </Modal>
   );
+}
+
+/**
+ * Flatten the read-only Trellis scan into select groups: one optgroup per
+ * workspace, tasks = every node of every root tree plus the standalone
+ * tasks. `dir` (the .trellis/tasks slug) is the value stored in
+ * annotations as `taskId`.
+ */
+function collectTaskGroups(workspaces) {
+  const groups = [];
+  for (const workspace of workspaces) {
+    if (!workspace.hasTrellis) continue;
+    const tasks = [];
+    const walk = (node) => {
+      tasks.push({ dir: node.dir, title: node.title });
+      for (const child of node.children ?? []) walk(child);
+    };
+    for (const root of workspace.roots ?? []) walk(root);
+    for (const task of workspace.standalone ?? []) tasks.push({ dir: task.dir, title: task.title });
+    if (tasks.length > 0) groups.push({ workspaceTitle: workspace.title, tasks });
+  }
+  return groups;
 }

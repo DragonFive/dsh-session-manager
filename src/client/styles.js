@@ -94,6 +94,12 @@ export const styles = String.raw`
 .dsm-twarn{font-size:12px;color:var(--dsw-alias-label-warning,#f5A623);padding:2px 0 8px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .dsm-tstandalone{padding:6px 0 2px}
 .dsm-tstandalone-list{padding:4px 0 0}
+.dsm-search{width:180px;flex:none;height:28px;font-size:12px;padding:0 10px}
+.dsm-tsessions{display:flex;flex-wrap:wrap;gap:4px;padding:0 12px 8px}
+.dsm-tsession{appearance:none;background:none;font:inherit;cursor:pointer;max-width:220px;overflow:hidden;text-overflow:ellipsis}
+.dsm-tsession:hover{border-color:var(--dsw-alias-label-dimmed,#77777e)}
+.dsm-tsession:disabled{opacity:.55;cursor:default}
+.dsm-ttable .dsm-tsession{display:inline-block;max-width:180px;margin:1px 4px 1px 0;vertical-align:middle}
 .dsm-texport{padding:10px 16px;border-bottom:1px solid var(--dsw-alias-border-l2,#2a2a2e);display:flex;flex-direction:column;gap:8px}
 .dsm-texport-row{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
 .dsm-texport-label{flex:none;font-size:12px;color:var(--dsw-alias-label-tertiary,#8f8f96);width:60px}

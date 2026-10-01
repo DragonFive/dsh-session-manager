@@ -342,3 +342,44 @@ test("config seed taxonomy is used when the store is created fresh", async () =>
   const reopened = openStore({ file: otherFile, seedTaxonomy: seed });
   assert.deepEqual((await reopened.read()).taxonomy.categories, DEFAULT_TAXONOMY.categories);
 });
+
+test("annotation taskId links a session to a trellis task", async () => {
+  const file = await tempFile();
+  const store = openStore({ file });
+  const snapshot = await store.upsert({
+    sessionId: "session-1",
+    annotation: { status: "todo", priority: "normal", taskId: "08-20-glm52-1m-kv-offload-study" },
+  });
+  assert.equal(snapshot.sessions["session-1"].taskId, "08-20-glm52-1m-kv-offload-study");
+  // A partial patch (taskId absent) keeps the link.
+  const second = await store.upsert({ sessionId: "session-1", annotation: { status: "done", priority: "normal" } });
+  assert.equal(second.sessions["session-1"].taskId, "08-20-glm52-1m-kv-offload-study");
+  // The dialog clears the link with an explicit null.
+  const cleared = await store.upsert({
+    sessionId: "session-1",
+    annotation: { status: "done", priority: "normal", taskId: null },
+  });
+  assert.equal(cleared.sessions["session-1"].taskId, undefined);
+  // A cleared link stays cleared, and a re-linked one round-trips, on disk.
+  await store.upsert({
+    sessionId: "session-2",
+    annotation: { status: "todo", priority: "normal", taskId: "10-01-jdme-dongmonitor-dsh-bridge" },
+  });
+  const reopened = openStore({ file });
+  const reread = await reopened.read();
+  assert.equal(reread.sessions["session-1"].taskId, undefined);
+  assert.equal(reread.sessions["session-2"].taskId, "10-01-jdme-dongmonitor-dsh-bridge");
+});
+
+test("annotation taskId must be a non-empty string when present", async () => {
+  const file = await tempFile();
+  const store = openStore({ file });
+  await assert.rejects(
+    store.upsert({ sessionId: "session-1", annotation: { status: "todo", priority: "normal", taskId: "  " } }),
+    /taskId/,
+  );
+  await assert.rejects(
+    store.upsert({ sessionId: "session-1", annotation: { status: "todo", priority: "normal", taskId: 42 } }),
+    /taskId/,
+  );
+});

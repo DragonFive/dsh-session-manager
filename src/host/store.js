@@ -57,10 +57,11 @@ export function openStore({ file, logger = console, now = () => new Date().toISO
     /**
      * Upsert one session's annotation, or remove it when `annotation` is null.
      * Fields absent from the incoming annotation keep their previous values
-     * (partial-patch semantics). Two fields support an explicit clear: passing
-     * `category: null` / `notes: null` removes the previous value instead of
-     * keeping it — the dialog (a full editor) uses this so deselecting a
-     * category or emptying notes actually clears them.
+     * (partial-patch semantics). Three fields support an explicit clear:
+     * passing `category: null` / `notes: null` / `taskId: null` removes the
+     * previous value instead of keeping it — the dialog (a full editor) uses
+     * this so a deselected category, emptied notes, or an unlinked task
+     * actually clears them.
      * New tags are merged into the taxonomy tag list.
      * @param {{ sessionId: string, workspaceId?: string, annotation: object | null }} input
      * @returns {Promise<object>} the store snapshot after the write
@@ -79,6 +80,7 @@ export function openStore({ file, logger = console, now = () => new Date().toISO
         }
         const clearCategory = annotation.category === null;
         const clearNotes = annotation.notes === null;
+        const clearTaskId = annotation.taskId === null;
         // A `custom/<label>` category id the taxonomy does not know yet is
         // registered on the fly (mirroring how new tags merge in). The
         // candidate is a copy, so a failed validation below cannot leak a
@@ -89,6 +91,7 @@ export function openStore({ file, logger = console, now = () => new Date().toISO
         const merged = { ...previous, ...incoming };
         if (clearCategory) delete merged.category;
         if (clearNotes) delete merged.notes;
+        if (clearTaskId) delete merged.taskId;
         if (workspaceId !== undefined) {
           if (workspaceId !== null && typeof workspaceId !== "string") {
             throw new ValidationError("workspaceId must be a string when present");

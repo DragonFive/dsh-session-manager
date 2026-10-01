@@ -17,7 +17,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 // NOTE: ui-primitives icon exports carry the stroke-width suffix (`*Regular`);
 // there are no bare `IconWarningOutline` exports (P1 lesson).
 import { IconWarningOutlineRegular, Toast } from "@deepseek-ai/dsh-client-ui-primitives";
-import { fetchTrellis, fetchTrellisConfig, postTrellisConfig, postTrellisExport } from "./api.js";
+import { fetchBoard, fetchTrellis, fetchTrellisConfig, postTrellisConfig, postTrellisExport } from "./api.js";
 
 /** task.json status → Chinese label (host markdown export uses the same set). */
 const STATUS_LABELS = {
@@ -45,8 +45,9 @@ function statusBadgeKind(status) {
   return STATUS_BADGE_KINDS[status] ?? "unknown";
 }
 
-export function TrellisPanel({ t }) {
+export function TrellisPanel({ t, openSession }) {
   const [data, setData] = useState(null);
+  const [board, setBoard] = useState(null);
   const [phase, setPhase] = useState("loading");
   const [errorMsg, setErrorMsg] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
@@ -59,14 +60,30 @@ export function TrellisPanel({ t }) {
     setPhase("loading");
     setErrorMsg("");
     try {
-      const value = await fetchTrellis();
-      setData(value);
+      // The session board rides along (fail-soft) so task cards can show
+      // which sessions are linked to each task through annotations.
+      const [trellis, sessions] = await Promise.all([fetchTrellis(), fetchBoard().catch(() => null)]);
+      setData(trellis);
+      setBoard(sessions);
       setPhase("ready");
     } catch (reason) {
       setErrorMsg(reason instanceof Error ? reason.message : String(reason));
       setPhase("error");
     }
   }, []);
+
+  // taskId (the .trellis/tasks dir slug) → linked sessions, joined from the
+  // board payload's annotations.
+  const sessionsByTask = useMemo(() => {
+    const map = new Map();
+    for (const session of board?.sessions ?? []) {
+      const taskId = session.annotation?.taskId;
+      if (taskId === undefined) continue;
+      if (!map.has(taskId)) map.set(taskId, []);
+      map.get(taskId).push(session);
+    }
+    return map;
+  }, [board]);
 
   useEffect(() => {
     void load();
@@ -200,6 +217,8 @@ export function TrellisPanel({ t }) {
               onToggle={toggleExpanded}
               showStandalone={showStandalone}
               onToggleStandalone={() => setShowStandalone((prev) => !prev)}
+              sessionsByTask={sessionsByTask}
+              onOpenSession={openSession}
               t={t}
             />
           ))
@@ -209,7 +228,17 @@ export function TrellisPanel({ t }) {
   );
 }
 
-function WorkspaceSection({ workspace, statusFilter, expanded, onToggle, showStandalone, onToggleStandalone, t }) {
+function WorkspaceSection({
+  workspace,
+  statusFilter,
+  expanded,
+  onToggle,
+  showStandalone,
+  onToggleStandalone,
+  sessionsByTask,
+  onOpenSession,
+  t,
+}) {
   const roots =
     statusFilter === "all" ? workspace.roots : workspace.roots.filter((root) => root.status === statusFilter);
   const totalSubtasks = workspace.standalone.length;
@@ -228,7 +257,15 @@ function WorkspaceSection({ workspace, statusFilter, expanded, onToggle, showSta
         <div className="dsm-board-msg">{t("trellisNoParents")}</div>
       ) : (
         roots.map((root) => (
-          <ParentCard key={root.dir} root={root} expanded={expanded.has(root.dir)} onToggle={onToggle} t={t} />
+          <ParentCard
+            key={root.dir}
+            root={root}
+            expanded={expanded.has(root.dir)}
+            onToggle={onToggle}
+            sessionsByTask={sessionsByTask}
+            onOpenSession={onOpenSession}
+            t={t}
+          />
         ))
       )}
       {roots.length === 0 && workspace.roots.length > 0 && (
@@ -256,6 +293,9 @@ function WorkspaceSection({ workspace, statusFilter, expanded, onToggle, showSta
                     <span className="dsm-badge" data-kind={statusBadgeKind(task.status)}>
                       {statusLabel(task.status)}
                     </span>
+                    {(sessionsByTask?.get(task.dir) ?? []).map((session) => (
+                      <SessionChip key={session.sessionId} session={session} onOpen={onOpenSession} t={t} />
+                    ))}
                   </div>
                 </div>
               ))}
@@ -267,8 +307,9 @@ function WorkspaceSection({ workspace, statusFilter, expanded, onToggle, showSta
   );
 }
 
-function ParentCard({ root, expanded, onToggle, t }) {
+function ParentCard({ root, expanded, onToggle, sessionsByTask, onOpenSession, t }) {
   const percent = root.totalCount === 0 ? 0 : Math.round((root.completedCount / root.totalCount) * 100);
+  const linked = sessionsByTask?.get(root.dir) ?? [];
   return (
     <div className="dsm-tcard" data-open={expanded}>
       <button
@@ -301,6 +342,13 @@ function ParentCard({ root, expanded, onToggle, t }) {
           </span>
         </span>
       </button>
+      {linked.length > 0 && (
+        <div className="dsm-tsessions">
+          {linked.map((session) => (
+            <SessionChip key={session.sessionId} session={session} onOpen={onOpenSession} t={t} />
+          ))}
+        </div>
+      )}
       {expanded && (
         <div className="dsm-tcard-body">
           <table className="dsm-ttable">
@@ -311,11 +359,12 @@ function ParentCard({ root, expanded, onToggle, t }) {
                 <th>{t("trellisColBranch")}</th>
                 <th>PR</th>
                 <th>{t("trellisColCompletedAt")}</th>
+                <th>{t("sessionsCol")}</th>
               </tr>
             </thead>
             <tbody>
               {root.children.map((child) => (
-                <ChildRow key={child.dir} child={child} depth={1} />
+                <ChildRow key={child.dir} child={child} depth={1} sessionsByTask={sessionsByTask} onOpenSession={onOpenSession} t={t} />
               ))}
             </tbody>
           </table>
@@ -325,7 +374,8 @@ function ParentCard({ root, expanded, onToggle, t }) {
   );
 }
 
-function ChildRow({ child, depth }) {
+function ChildRow({ child, depth, sessionsByTask, onOpenSession, t }) {
+  const linked = sessionsByTask?.get(child.dir) ?? [];
   return (
     <>
       <tr>
@@ -346,11 +396,45 @@ function ChildRow({ child, depth }) {
           )}
         </td>
         <td>{child.completedAt ?? "—"}</td>
+        <td>
+          {linked.length === 0
+            ? "—"
+            : linked.map((session) => (
+                <SessionChip key={session.sessionId} session={session} onOpen={onOpenSession} t={t} />
+              ))}
+        </td>
       </tr>
       {child.children.map((grandchild) => (
-        <ChildRow key={grandchild.dir} child={grandchild} depth={depth + 1} />
+        <ChildRow
+          key={grandchild.dir}
+          child={grandchild}
+          depth={depth + 1}
+          sessionsByTask={sessionsByTask}
+          onOpenSession={onOpenSession}
+          t={t}
+        />
       ))}
     </>
+  );
+}
+
+/**
+ * A linked-session chip on a task card / subtask row. Click opens the
+ * session (archived sessions cannot be reopened, matching the board).
+ */
+function SessionChip({ session, onOpen, t }) {
+  const label = session.archived ? `${t("archived")} · ${session.displayTitle}` : session.displayTitle;
+  return (
+    <button
+      type="button"
+      className="dsm-badge dsm-tsession"
+      data-kind={session.running ? "running" : undefined}
+      title={session.displayTitle}
+      disabled={!onOpen || session.archived}
+      onClick={() => onOpen?.(session.sessionId)}
+    >
+      {label}
+    </button>
   );
 }
 

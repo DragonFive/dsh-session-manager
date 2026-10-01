@@ -80,8 +80,19 @@ export function apply(ctx) {
   );
 
   // P3: the Trellis milestone board — second panellist icon + main panel.
+  // `openSession` powers the linked-session chips on task cards (P4).
   ctx.slots.inject("main", () =>
-    ctx.slots.register({ name: "main", key: TRELLIS_PANEL_ID, locale: NS }, TrellisPanel),
+    ctx.slots.register(
+      {
+        name: "main",
+        key: TRELLIS_PANEL_ID,
+        locale: NS,
+        inject: () => ({
+          openSession: (sessionId) => ctx.uiWorkspace.openSession(sessionId),
+        }),
+      },
+      TrellisPanel,
+    ),
   );
 
   ctx.slots.inject("sidebar.panellist", () =>
