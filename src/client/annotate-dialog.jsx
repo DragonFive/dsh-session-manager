@@ -12,9 +12,14 @@ import { fetchAnnotations, postAnnotation } from "./api.js";
 
 const EMPTY = { category: undefined, tags: [], status: "todo", priority: "normal", notes: "" };
 
+// Must stay in sync with CUSTOM_CATEGORY_PREFIX in src/host/taxonomy.js:
+// ids in this namespace are auto-registered into the taxonomy on save.
+const CUSTOM_CATEGORY_PREFIX = "custom/";
+
 export function AnnotateDialog({ open, onClose, sessionId, displayTitle, onSaved, t }) {
   const [draft, setDraft] = useState(EMPTY);
   const [newTag, setNewTag] = useState("");
+  const [newCategory, setNewCategory] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [taxonomy, setTaxonomy] = useState(null);
@@ -27,6 +32,7 @@ export function AnnotateDialog({ open, onClose, sessionId, displayTitle, onSaved
     setError("");
     setDraft(EMPTY);
     setNewTag("");
+    setNewCategory("");
     setTaxonomy(null);
     fetchAnnotations()
       .then((store) => {
@@ -70,6 +76,35 @@ export function AnnotateDialog({ open, onClose, sessionId, displayTitle, onSaved
     if (tag === "") return;
     setNewTag("");
     setDraft((prev) => (prev.tags.includes(tag) ? prev : { ...prev, tags: [...prev.tags, tag] }));
+  };
+
+  const commitNewCategory = () => {
+    const label = newCategory.trim();
+    if (label === "") return;
+    setNewCategory("");
+    // Reuse an existing category that already carries this label instead of
+    // minting a duplicate custom id.
+    for (const node of categories) {
+      if (node.children?.length > 0) {
+        for (const child of node.children) {
+          if (child.label === label) {
+            setDraft((prev) => ({ ...prev, category: child.id }));
+            return;
+          }
+        }
+      } else if (node.label === label) {
+        setDraft((prev) => ({ ...prev, category: node.id }));
+        return;
+      }
+    }
+    // New custom category: the host registers `custom/<label>` into the
+    // taxonomy on save; append it to the local copy so the chip renders
+    // immediately.
+    const id = `${CUSTOM_CATEGORY_PREFIX}${label}`;
+    setDraft((prev) => (prev.category === id ? prev : { ...prev, category: id }));
+    setTaxonomy((prev) =>
+      prev ? { ...prev, categories: [...prev.categories, { id, label }] } : prev,
+    );
   };
 
   const save = async () => {
@@ -157,6 +192,19 @@ export function AnnotateDialog({ open, onClose, sessionId, displayTitle, onSaved
               )}
             </div>
           ))}
+          <input
+            className="dsm-input"
+            value={newCategory}
+            placeholder={t("newCategoryPlaceholder")}
+            onChange={(event) => setNewCategory(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === "Enter") {
+                event.preventDefault();
+                commitNewCategory();
+              }
+            }}
+            onBlur={commitNewCategory}
+          />
         </div>
         <div className="dsm-dialog-field">
           <span className="dsm-dialog-label">{t("tags")}</span>

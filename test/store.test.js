@@ -9,7 +9,7 @@ import { join } from "node:path";
 import test from "node:test";
 
 import { openStore } from "../src/host/store.js";
-import { DEFAULT_TAXONOMY, leafCategoryIds } from "../src/host/taxonomy.js";
+import { DEFAULT_TAXONOMY, leafCategoryIds, withCustomCategory } from "../src/host/taxonomy.js";
 import { validateAnnotation, validateStore, validateTaxonomy } from "../src/host/schema.js";
 
 async function tempFile() {
@@ -255,6 +255,72 @@ test("setTaxonomy replaces the taxonomy and persists", async () => {
   assert.deepEqual(snapshot.taxonomy.categories, next.categories);
   const reopened = openStore({ file });
   assert.deepEqual((await reopened.read()).taxonomy.categories, next.categories);
+});
+
+test("upsert auto-registers custom/ categories into the taxonomy", async () => {
+  const file = await tempFile();
+  const store = openStore({ file });
+  const snapshot = await store.upsert({
+    sessionId: "session-1",
+    annotation: { category: "custom/联调支持", tags: [], status: "todo", priority: "normal" },
+  });
+  assert.deepEqual(snapshot.taxonomy.categories.at(-1), { id: "custom/联调支持", label: "联调支持" });
+  assert.equal(snapshot.sessions["session-1"].category, "custom/联调支持");
+  // Saving the same custom category again does not duplicate the leaf.
+  const second = await store.upsert({
+    sessionId: "session-2",
+    annotation: { category: "custom/联调支持", tags: [], status: "todo", priority: "normal" },
+  });
+  assert.equal(second.taxonomy.categories.filter((node) => node.id === "custom/联调支持").length, 1);
+  // Durable: a reopened store keeps the registered category as a valid leaf.
+  const reopened = openStore({ file });
+  const reread = await reopened.read();
+  assert.equal(leafCategoryIds(reread.taxonomy).has("custom/联调支持"), true);
+});
+
+test("custom category ids stay strict outside the custom/ namespace", async () => {
+  const file = await tempFile();
+  const store = openStore({ file });
+  // Unknown non-custom ids are still rejected (no silent registration).
+  await assert.rejects(
+    store.upsert({ sessionId: "session-1", annotation: { category: "nope", status: "todo", priority: "normal" } }),
+    /category/,
+  );
+  // An empty label after the prefix is rejected too.
+  await assert.rejects(
+    store.upsert({ sessionId: "session-1", annotation: { category: "custom/  ", status: "todo", priority: "normal" } }),
+    /category/,
+  );
+});
+
+test("a failed upsert does not leak a custom category registration", async () => {
+  const file = await tempFile();
+  const store = openStore({ file });
+  // The custom category arrives together with an invalid status: the whole
+  // upsert must fail and the taxonomy must stay untouched.
+  await assert.rejects(
+    store.upsert({
+      sessionId: "session-1",
+      annotation: { category: "custom/泄漏检查", status: "bogus", priority: "normal" },
+    }),
+    /status/,
+  );
+  const snapshot = await store.read();
+  assert.equal(snapshot.taxonomy.categories.some((node) => node.id === "custom/泄漏检查"), false);
+});
+
+test("withCustomCategory is pure and only mints custom/ ids", () => {
+  const taxonomy = structuredClone(DEFAULT_TAXONOMY);
+  const extended = withCustomCategory(taxonomy, "custom/新分类");
+  assert.notEqual(extended, taxonomy);
+  // The input taxonomy is never mutated.
+  assert.equal(taxonomy.categories.length, 4);
+  assert.deepEqual(extended.categories.at(-1), { id: "custom/新分类", label: "新分类" });
+  // Already-known ids, non-custom ids, and non-strings return the same reference.
+  assert.equal(withCustomCategory(extended, "custom/新分类"), extended);
+  assert.equal(withCustomCategory(taxonomy, "nope"), taxonomy);
+  assert.equal(withCustomCategory(taxonomy, null), taxonomy);
+  assert.equal(withCustomCategory(taxonomy, "custom/"), taxonomy);
 });
 
 test("config seed taxonomy is used when the store is created fresh", async () => {
