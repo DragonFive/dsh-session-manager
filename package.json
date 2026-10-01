@@ -36,11 +36,11 @@
   },
   "peerDependencies": {
     "@deepseek-ai/cordis": "^4.0.4",
-    "@deepseek-ai/dsh-agent": "^0.1.7-alpha.2",
-    "@deepseek-ai/dsh-client-connection": "^0.1.7-alpha.2",
-    "@deepseek-ai/dsh-session-projection-cache": "^0.1.7-alpha.2",
-    "@deepseek-ai/dsh-session-query": "^0.1.7-alpha.2",
-    "@deepseek-ai/dsh-workspace": "^0.1.7-alpha.2"
+    "@deepseek-ai/dsh-agent": ">=0.1.7-alpha.2 <0.3.0",
+    "@deepseek-ai/dsh-client-connection": ">=0.1.7-alpha.2 <0.3.0",
+    "@deepseek-ai/dsh-session-projection-cache": ">=0.1.7-alpha.2 <0.3.0",
+    "@deepseek-ai/dsh-session-query": ">=0.1.7-alpha.2 <0.3.0",
+    "@deepseek-ai/dsh-workspace": ">=0.1.7-alpha.2 <0.3.0"
   },
   "peerDependenciesMeta": {
     "@deepseek-ai/cordis": {
