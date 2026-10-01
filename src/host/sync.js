@@ -46,6 +46,27 @@ export function detectMachine() {
 const ZSTD_MAX_BUFFER = 64 * 1024 * 1024;
 
 /**
+ * Find the newest `session.vN.jsonl.zstd` inside a session directory.
+ * The transcript version follows the dsh runtime (v3 on 0.1.x, v4 after
+ * the 0.2 upgrade) — never hardcode one version, or every session written
+ * by the newer runtime silently disappears from export/restore/stats
+ * (exactly what happened: two flagged sessions on v4 exported nothing).
+ * @returns {Promise<string | null>} the file name, or null when absent
+ */
+export async function findTranscript(sessionDir) {
+  const entries = await readdir(sessionDir, { withFileTypes: true }).catch(() => []);
+  let best = null;
+  for (const entry of entries) {
+    if (!entry.isFile()) continue;
+    const match = /^session\.v(\d+)\.jsonl\.zstd$/.exec(entry.name);
+    if (match === null) continue;
+    const version = Number(match[1]);
+    if (best === null || version > best.version) best = { version, name: entry.name };
+  }
+  return best?.name ?? null;
+}
+
+/**
  * Decompress a zstd file to text (the session transcript is utf8 JSONL;
  * stdout utf8 decoding is safe here — the payload is text).
  */
@@ -281,10 +302,14 @@ export function openSyncManager({
       let source = null;
       for (const entry of workspaces) {
         if (!entry.isDirectory()) continue;
-        const candidate = join(sessionsSource, entry.name, sessionId, "session.v3.jsonl.zstd");
-        const info = await stat(candidate).catch(() => null);
+        const sessionDir = join(sessionsSource, entry.name, sessionId);
+        // Version-agnostic: pick the newest session.vN.jsonl.zstd (v3 on
+        // 0.1.x runtimes, v4 after the 0.2 upgrade).
+        const transcript = await findTranscript(sessionDir);
+        if (transcript === null) continue;
+        const info = await stat(join(sessionDir, transcript)).catch(() => null);
         if (info?.isFile()) {
-          source = { file: candidate, size: info.size, workspace: entry.name };
+          source = { file: join(sessionDir, transcript), name: transcript, size: info.size, workspace: entry.name };
           break;
         }
       }
@@ -298,7 +323,7 @@ export function openSyncManager({
       }
       const targetDir = join(settings.repoPath, "sessions", sessionId);
       await mkdir(targetDir, { recursive: true });
-      await copyFile(source.file, join(targetDir, "session.v3.jsonl.zstd"));
+      await copyFile(source.file, join(targetDir, source.name));
       await writeFile(
         join(targetDir, "meta.json"),
         `${JSON.stringify(
@@ -307,6 +332,7 @@ export function openSyncManager({
             exportedAt: new Date().toISOString(),
             sourceWorkspace: source.workspace,
             sourceCwd: cwdOf.get(sessionId) ?? null,
+            transcriptFile: source.name,
             sizeBytes: source.size,
             annotation: {
               status: annotation.status ?? null,
@@ -348,7 +374,8 @@ export function openSyncManager({
       "# 已同步会话索引",
       "",
       "> 由 dsh-session-manager「同步」标签页自动生成。正本是 zstd 压缩的原始会话记录",
-      "> （`zstd -dc session.v3.jsonl.zstd` 查看）；只有标注里打开「同步到仓库」的会话会出现在这里。",
+      "> （`zstd -dc session.v*.jsonl.zstd` 查看，文件名见各会话目录）；只有标注里打开",
+      "> 「同步到仓库」的会话会出现在这里。",
       "",
       "| 会话 | 任务 | 状态 | 优先级 | 备注 | 导出时间 |",
       "| --- | --- | --- | --- | --- | --- |",
@@ -560,14 +587,20 @@ export function openSyncManager({
         throw new SyncError("未配置同步仓库路径（同步标签页里填仓库路径 / 仓库地址）");
       }
       const sourceDir = join(settings.repoPath, "sessions", sessionId);
-      const sourceZst = join(sourceDir, "session.v3.jsonl.zstd");
       const meta =
         (await readFile(join(sourceDir, "meta.json"), "utf8")
           .then((text) => JSON.parse(text))
           .catch(() => null)) ?? {};
-      if ((await stat(sourceZst).catch(() => null)) === null) {
+      // The transcript keeps its exported name (meta.transcriptFile, or the
+      // newest session.vN.jsonl.zstd for older exports).
+      const transcriptFile =
+        typeof meta.transcriptFile === "string" && meta.transcriptFile !== ""
+          ? meta.transcriptFile
+          : await findTranscript(sourceDir);
+      if (transcriptFile === null) {
         throw new SyncError(`仓库里没有会话 ${sessionId} 的记录文件`);
       }
+      const sourceZst = join(sourceDir, transcriptFile);
       const local = await localSessionIds();
       if (local.has(sessionId)) {
         throw new SyncError(`会话 ${sessionId} 已存在于本机，无需恢复`);
@@ -583,8 +616,8 @@ export function openSyncManager({
         }
         directory = join(sessionsSource, workspaceDir, sessionId);
         await mkdir(directory, { recursive: true });
-        await copyFile(sourceZst, join(directory, "session.v3.jsonl.zstd"));
-        return { sessionId, directory, rewroteCwd: false };
+        await copyFile(sourceZst, join(directory, transcriptFile));
+        return { sessionId, directory, rewroteCwd: false, transcriptFile };
       }
 
       if (!isAbsolute(target)) {
@@ -609,8 +642,8 @@ export function openSyncManager({
       const dirName = `--${target.replace(/^\//, "").replace(/\//g, "-")}--`;
       directory = join(sessionsSource, dirName, sessionId);
       await mkdir(directory, { recursive: true });
-      await compressZstdToFile(join(directory, "session.v3.jsonl.zstd"), rewritten);
-      return { sessionId, directory, rewroteCwd: true };
+      await compressZstdToFile(join(directory, transcriptFile), rewritten);
+      return { sessionId, directory, rewroteCwd: true, transcriptFile };
     },
   };
 }

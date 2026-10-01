@@ -350,3 +350,63 @@ test("a git remote URL in syncRepoUrl is stored verbatim and never path-expanded
   const collected = await manager.listCollected();
   assert.equal(Array.isArray(collected.sessions), true);
 });
+
+test(
+  "export/restore handle v4 transcripts (version-agnostic lookup)",
+  { skip: zstdAvailable ? false : "zstd not installed" },
+  async () => {
+    const dir = await tempDir();
+    const { remote, work } = await seededRepos(dir);
+    // A session written by the newer dsh runtime: session.v4.jsonl.zstd.
+    const raw =
+      `${JSON.stringify({ type: "session", version: 4, id: "session-v4", createdAt: 1, cwd: "/Users/x/code/repo-a" })}\n` +
+      '{"type":"message"}\n';
+    const sessionsRoot = join(dir, "sessions-src");
+    const sessionDir = join(sessionsRoot, "--Users-x-code-repo-a--", "session-v4");
+    await mkdir(sessionDir, { recursive: true });
+    const rawFile = join(dir, "raw4.tmp");
+    await writeFile(rawFile, raw);
+    await new Promise((resolve, reject) => {
+      execFile("zstd", ["-f", "-o", join(sessionDir, "session.v4.jsonl.zstd"), rawFile], (error) =>
+        error ? reject(error) : resolve(),
+      );
+    });
+    const annotationsFile = join(dir, "annotations.json");
+    await writeFile(
+      annotationsFile,
+      JSON.stringify({
+        schemaVersion: 1,
+        taxonomy: { categories: [{ id: "misc", label: "杂项" }], tags: [], statuses: [{ id: "todo", label: "待办" }], priorities: [{ id: "normal", label: "一般" }] },
+        sessions: { "session-v4": { status: "doing", priority: "normal", tags: [], sync: true } },
+      }),
+    );
+    const manager = managerFor(dir, { sessionsSource: sessionsRoot, annotationsFile });
+    await manager.setConfig({ syncRepoPath: work, syncRepoUrl: remote, syncMachine: "mac" });
+    const result = await manager.run();
+    assert.match(result.lines.join("\n"), /导出会话 1 个/);
+    // The exported copy keeps the original (v4) file name and records it.
+    const meta = JSON.parse(await readFile(join(work, "sessions", "session-v4", "meta.json"), "utf8"));
+    assert.equal(meta.transcriptFile, "session.v4.jsonl.zstd");
+    await readFile(join(work, "sessions", "session-v4", "session.v4.jsonl.zstd"));
+
+    // Restore on a "fresh machine" lands the same v4 file name.
+    const otherManager = openSyncManager({
+      configFile: join(dir, "settings-v4.json"),
+      deployTarget: join(dir, "deployed-v4", "cordis.patch.yml"),
+      sessionsSource: join(dir, "sessions-v4-other"),
+      logger: silentLogger,
+    });
+    await otherManager.setConfig({ syncRepoPath: work, syncMachine: "910c103" });
+    const restored = await otherManager.restore({ sessionId: "session-v4", targetCwd: "/home/maxl/code/repo-b" });
+    assert.equal(restored.transcriptFile, "session.v4.jsonl.zstd");
+    const restoredText = await new Promise((resolve, reject) => {
+      execFile(
+        "zstd",
+        ["-dc", join(dir, "sessions-v4-other", "--home-maxl-code-repo-b--", "session-v4", "session.v4.jsonl.zstd")],
+        { maxBuffer: 1 << 26 },
+        (error, stdout) => (error ? reject(error) : resolve(stdout.toString("utf8"))),
+      );
+    });
+    assert.equal(JSON.parse(restoredText.split("\n")[0]).cwd, "/home/maxl/code/repo-b");
+  },
+);
