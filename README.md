@@ -16,7 +16,7 @@ DeepSeek Harness (DSH) Web 插件：给会话打上 分类 / 标签 / 状态 / �
   - **自定义分类**：分类区输入框输入新分类名回车即创建（与已有分类重名时自动复用）；
     以 `custom/<名称>` id 保存时由 host 自动注册进 taxonomy 并随 sidecar 持久化，
     下次打开弹窗 / 看板筛选直接可选。预设分类 id 保持严格校验，不会被静默创建。
-- **会话看板**：侧栏新面板「会话看板」（`dsm-board`）：
+- **会话看板**：单侧栏入口「看板」（`dsm-board`）的三标签面板之「会话」标签：
   - 数据 = `sessionQuery.listSessions()` ⊕ 标注 ⊕ 运行状态，host 一次 JSON 返回；
   - 分组视图：按分类 / 状态 / 优先级 / 标签；未标注会话按**默认状态「待办」/ 默认优先级「一般」**
     参与状态、优先级的分组、筛选、行徽章与快捷编辑（分类/标签分组仍进「未分类」/「未标注」桶）；
@@ -38,6 +38,11 @@ DeepSeek Harness (DSH) Web 插件：给会话打上 分类 / 标签 / 状态 / �
 - **库文件**：默认 `~/.dsh/storages/dsh-session-manager/prompts.yaml`，首次打开时自动落盘内置示例库
   （三组：PR 评审 / 写笔记 / 代码学习，与仓库 `examples/prompts.yaml` 完全一致）。
   每次打开命令都重读文件——修改保存后无需重启，下次 `/p` 即生效。
+- **看板编辑器**：「看板」面板的「提示词」标签：全部分组 / 提示词列表化展示，标题、正文、
+  分组名**行内直接编辑**，支持新增分组 / 新增提示词 / 删除（删分组内最后一条会连分组一起删，
+  最后一个分组受保护），「保存」一次性写回整个库（POST /prompts）。host 侧序列化带
+  **往返防护**：写盘前用同一个子集解析器回读校验，写不回去的内容（如行首 tab）直接 400
+  拒绝，文件永远保持可加载、可手动编辑（块标量输出，不塞转义符）。不再需要手改 YAML。
 - **Settings 卡片**：设置 → Plugins 分区新增「提示词库」标签页（`settings.plugins.tab`），
   可配置库文件绝对路径（支持 `~` 前缀），留空恢复默认；保存即 live 生效。
 
@@ -61,7 +66,7 @@ groups:
 
 ### P3：Trellis 里程碑看板 + 笔记导出
 
-- **Trellis 看板**：侧栏第二个面板「Trellis 看板」（`dsm-trellis`，order 600，分支图标）：
+- **Trellis 看板**：「看板」面板的「Trellis」标签（原先独立侧栏图标已合并进三标签面板）：
   - 数据 = host 只读扫描各注册 workspace 的 `.trellis/tasks/*/task.json`（**对 `.trellis` 绝对只读**，
     状态变更仍走 trellis CLI / 会话内工作流）；workspace 注册表 ∪ 会话 cwd 推导（复用 P1 board 的
     workspace 归属逻辑），含 `.trellis` 的 workspace 才显示；
@@ -126,8 +131,8 @@ groups:
 
 ```
 浏览器 client 半边（lib/client.js，tsdown 打包，__ModuleLoader__ 加载）
-  slots: sidebar.panellist(dsm-board) / main(dsm-board)
-         sidebar.panellist(dsm-trellis, order 600) / main(dsm-trellis)  ← P3 Trellis 看板
+  slots: sidebar.panellist(dsm-board) / main(dsm-board)  ← 唯一侧栏入口，
+                                                          面板内三标签：会话 / Trellis / 提示词
          sidebar.workspaces.session.menu.item(dsm.annotate)
          sidebar.workspaces.session.row.action(dsm.annotate-icon)
          shell.overlay(dsm.annotate-overlay)  ← 标注弹窗本体（菜单行随菜单卸载，
@@ -222,9 +227,9 @@ dsh plugin --profile web add ...   # 安装/升级后
 固有行为（同 dsh-trellis 的说明：替换已加载的包版本后需重启对应 DSH 进程）。
 升级插件版本同理：`dsh plugin update`（或 remove + add）后必须重启。
 
-安装并重启后：设置 → 插件 应显示 dsh-session-manager 已启用；侧栏出现「会话看板」与
-「Trellis 看板」图标；会话行 "..." 菜单出现「标注…」；输入框 `/p` 弹出提示词面板；
-设置 → Plugins 分区出现「提示词库」标签页。
+安装并重启后：设置 → 插件 应显示 dsh-session-manager 已启用；侧栏出现**一个**「看板」图标
+（点开是三标签面板：会话 / Trellis / 提示词）；会话行 "..." 菜单出现「标注…」；输入框 `/p`
+弹出提示词面板；设置 → Plugins 分区出现「提示词库」标签页。
 
 ## 配置（可选）
 

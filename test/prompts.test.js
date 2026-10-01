@@ -21,6 +21,7 @@ import {
   ROUTE_PATHS,
   handleGetPrompts,
   handleGetPromptsConfig,
+  handleSavePrompts,
   handleSetPromptsConfig,
 } from "../src/host/routes.js";
 
@@ -207,6 +208,67 @@ test("route handlers: prompts config GET/POST contract", async () => {
   );
   await assert.rejects(
     () => handleSetPromptsConfig(library, "garbage"),
+    (error) => error instanceof HttpError && error.status === 400,
+  );
+});
+
+test("save(): editor writes round-trip through the subset parser", async () => {
+  const library = await tempLibrary();
+  await library.load(); // seed the default file
+  const saved = await library.save({
+    groups: [
+      {
+        id: "editor",
+        label: "编辑器组: 冒号",
+        prompts: [
+          { id: "plain", title: "普通", body: "正文\n" },
+          { id: "no-trailing", title: "无尾换行", body: "单行" },
+          { id: "blank-line", title: "空行 # 井号", body: "第一段\n\n第二段\n" },
+          { id: "keep", title: "多个尾换行", body: "结尾\n\n" },
+          { id: "quoted", title: "含\"引号\"", body: "tab\t中间\n" },
+        ],
+      },
+    ],
+  });
+  // The save result is the re-loaded library: identical content.
+  assert.equal(saved.groups.length, 1);
+  assert.equal(saved.groups[0].label, "编辑器组: 冒号");
+  assert.deepEqual(
+    saved.groups[0].prompts.map((prompt) => prompt.body),
+    ["正文\n", "单行", "第一段\n\n第二段\n", "结尾\n\n", "tab\t中间\n"],
+  );
+  // The file on disk still parses (the next /p open reads the same thing).
+  const reloaded = await library.load();
+  assert.deepEqual(reloaded.groups, saved.groups);
+  // The YAML text itself stays human-editable (block scalars, not escapes).
+  const text = await readFile(saved.file, "utf8");
+  assert.match(text, /body: \|-?\n\s+第一段\n\n\s+第二段/);
+});
+
+test("save(): invalid libraries are rejected without touching the file", async () => {
+  const library = await tempLibrary();
+  const before = await library.load();
+  const beforeText = await readFile(before.file, "utf8");
+  await assert.rejects(() => library.save({ groups: [] }), /groups/);
+  await assert.rejects(
+    () => library.save({ groups: [{ id: "g", label: "组", prompts: [{ id: "p", title: "t", body: "" }] }] }),
+    /body/,
+  );
+  await assert.rejects(
+    () => library.save({ groups: [{ id: "g", label: "组", prompts: [] }] }),
+    /prompts/,
+  );
+  assert.equal(await readFile(before.file, "utf8"), beforeText);
+});
+
+test("route handler: prompts POST saves and maps validation failures to 400", async () => {
+  const library = await tempLibrary();
+  const saved = await handleSavePrompts(library, {
+    groups: [{ id: "g", label: "组", prompts: [{ id: "p", title: "条", body: "正文\n" }] }],
+  });
+  assert.equal(saved.groups[0].prompts[0].body, "正文\n");
+  await assert.rejects(
+    () => handleSavePrompts(library, { groups: [] }),
     (error) => error instanceof HttpError && error.status === 400,
   );
 });

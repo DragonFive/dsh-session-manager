@@ -8,6 +8,16 @@
  */
 export const styles = String.raw`
 .dsm-board{min-width:0;display:flex;flex-direction:column;height:100%}
+.dsm-manager{min-width:0;display:flex;flex-direction:column;height:100%}
+.dsm-tabs{display:flex;align-items:center;gap:6px;padding:10px 16px 0}
+.dsm-manager-body{flex:1;min-height:0;display:flex;flex-direction:column}
+.dsm-manager-body>.dsm-board{flex:1;min-height:0}
+.dsm-pnotice{padding:6px 16px 0;font-size:12px}
+.dsm-pgroup-label{width:200px;height:28px;font-size:13px;font-weight:600;flex:none}
+.dsm-pcard{border:1px solid var(--dsw-alias-border-l2,#2a2a2e);border-radius:10px;padding:8px 10px;margin-bottom:8px;display:flex;flex-direction:column;gap:6px}
+.dsm-pcard-head{display:flex;align-items:center;gap:8px}
+.dsm-pcard-title{flex:1;height:30px;font-size:13px;font-weight:500}
+.dsm-pcard-body{min-height:96px;font-size:12px}
 .dsm-board-head{display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:12px 16px;border-bottom:1px solid var(--dsw-alias-border-l2,#2a2a2e)}
 .dsm-board-title{font-size:15px;font-weight:600;color:var(--dsw-alias-label-primary,#e9e9ec);margin-right:4px}
 .dsm-board-count{font-size:12px;color:var(--dsw-alias-label-tertiary,#8f8f96)}

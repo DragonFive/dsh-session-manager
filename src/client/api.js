@@ -59,6 +59,18 @@ export function fetchPrompts(signal) {
   return request("/api/dsh-session-manager/prompts", { signal });
 }
 
+/**
+ * POST /api/dsh-session-manager/prompts — validate, serialize, and
+ * atomically save the whole library (the board editor's save path).
+ * @param {{ groups: object[] }} library
+ */
+export function postPrompts(library) {
+  return request("/api/dsh-session-manager/prompts", {
+    method: "POST",
+    body: JSON.stringify(library),
+  });
+}
+
 /** GET /api/dsh-session-manager/prompts/config — current library path config. */
 export function fetchPromptsConfig() {
   return request("/api/dsh-session-manager/prompts/config");

@@ -34,6 +34,7 @@ import {
   handleGetPrompts,
   handleGetPromptsConfig,
   handleGetTrellisConfig,
+  handleSavePrompts,
   handleSetPromptsConfig,
   handleSetTaxonomy,
   handleSetTrellisConfig,
@@ -133,9 +134,12 @@ export function apply(ctx, config = {}) {
     },
     {
       path: ROUTE_PATHS.prompts,
-      methods: ["GET"],
+      methods: ["GET", "POST"],
       requestBody: "buffered",
-      fetch: guarded(() => handleGetPrompts(promptsLibrary)),
+      fetch: guarded(async (request) => {
+        if (request.method === "GET") return handleGetPrompts(promptsLibrary);
+        return handleSavePrompts(promptsLibrary, await readJsonBody(request));
+      }),
     },
     {
       path: ROUTE_PATHS.promptsConfig,

@@ -194,6 +194,22 @@ export async function handleGetPrompts(library) {
   }
 }
 
+/**
+ * POST /prompts — validate, serialize, and atomically save the whole
+ * library (the board editor's save path). The write is guarded by a parse
+ * round-trip, so the file on disk always stays loadable.
+ * @param {{ save(input: unknown): Promise<object> }} library
+ * @param {unknown} body
+ */
+export async function handleSavePrompts(library, body) {
+  try {
+    return await library.save(body);
+  } catch (error) {
+    if (error instanceof PromptsError) throw new HttpError(400, error.message);
+    throw error;
+  }
+}
+
 /** GET /prompts/config — the current library path configuration. */
 export async function handleGetPromptsConfig(library) {
   return library.getConfig();
