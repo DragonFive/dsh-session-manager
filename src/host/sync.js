@@ -160,15 +160,21 @@ export function openSyncManager({
   async function resolveEffective() {
     const stored = await readConfigFile();
     let repoPath = null;
-    let repoUrl = null;
     let sshKey = null;
     try {
       repoPath = expandSyncPath(stored.syncRepoPath ?? null);
-      repoUrl = expandSyncPath(stored.syncRepoUrl ?? null);
       sshKey = expandSyncPath(stored.syncSshKey ?? null);
     } catch (error) {
       throw new SyncError(`同步配置无效：${error.message}`);
     }
+    // The repo URL is a git remote (git@host:owner/repo.git, https://…),
+    // NOT a filesystem path — never run it through the path expander
+    // (a regression here broke both sync tabs the moment a real URL was
+    // configured; the tests only ever used local absolute paths).
+    const repoUrl =
+      typeof stored.syncRepoUrl === "string" && stored.syncRepoUrl.trim() !== ""
+        ? stored.syncRepoUrl.trim()
+        : null;
     const machine =
       typeof stored.syncMachine === "string" && stored.syncMachine.trim() !== ""
         ? stored.syncMachine.trim()
@@ -403,6 +409,12 @@ export function openSyncManager({
           continue;
         }
         if (field === "syncMachine") {
+          stored[field] = trimmed;
+          continue;
+        }
+        if (field === "syncRepoUrl") {
+          // A git remote (git@…:… / https://…), stored verbatim — the path
+          // expander would reject it for not being absolute.
           stored[field] = trimmed;
           continue;
         }

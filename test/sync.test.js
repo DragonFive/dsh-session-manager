@@ -332,3 +332,21 @@ test(
     );
   },
 );
+
+test("a git remote URL in syncRepoUrl is stored verbatim and never path-expanded", async () => {
+  const dir = await tempDir();
+  const { work } = await seededRepos(dir);
+  const manager = managerFor(dir);
+  // Regression: the URL used to run through the absolute-path expander and
+  // broke every sync operation the moment a real remote was configured.
+  const updated = await manager.setConfig({
+    syncRepoPath: work,
+    syncRepoUrl: "git@github.com:DragonFive/dsh-sync.git",
+    syncMachine: "mac",
+  });
+  assert.equal(updated.repoUrl, "git@github.com:DragonFive/dsh-sync.git");
+  assert.equal(updated.repoReady, true);
+  assert.equal(updated.status.dirty.length, 0);
+  const collected = await manager.listCollected();
+  assert.equal(Array.isArray(collected.sessions), true);
+});
