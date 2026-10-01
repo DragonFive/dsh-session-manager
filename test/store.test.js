@@ -3,7 +3,7 @@
  * schema rejection, corruption recovery, and concurrent-write safety.
  */
 import { strict as assert } from "node:assert";
-import { mkdtemp, readdir, readFile, writeFile } from "node:fs/promises";
+import { mkdtemp, readdir, readFile, utimes, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -382,4 +382,31 @@ test("annotation taskId must be a non-empty string when present", async () => {
     store.upsert({ sessionId: "session-1", annotation: { status: "todo", priority: "normal", taskId: 42 } }),
     /taskId/,
   );
+});
+
+test("external sidecar edits are hot-reloaded on the next operation", async () => {
+  const file = await tempFile();
+  const store = openStore({ file });
+  const before = await store.read();
+  // Simulate an out-of-process writer (scripts/link-session.mjs): rewrite
+  // the file with a new linked session, bumping mtime explicitly so a
+  // same-ms write cannot hide the change.
+  const external = structuredClone(before);
+  external.sessions["ext-1"] = {
+    status: "doing",
+    priority: "normal",
+    tags: [],
+    taskId: "08-23-llm-pd-architecture-comparison",
+  };
+  await writeFile(file, JSON.stringify(external, null, 2), "utf8");
+  const bump = new Date(Date.now() + 2000);
+  await utimes(file, bump, bump);
+  const after = await store.read();
+  assert.equal(after.sessions["ext-1"]?.taskId, "08-23-llm-pd-architecture-comparison");
+  // A host-side upsert afterwards merges on top of the external edit
+  // instead of clobbering it.
+  await store.upsert({ sessionId: "host-1", annotation: { status: "todo", priority: "normal" } });
+  const merged = await store.read();
+  assert.equal(merged.sessions["ext-1"] !== undefined, true);
+  assert.equal(merged.sessions["host-1"] !== undefined, true);
 });

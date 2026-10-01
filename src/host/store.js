@@ -8,8 +8,12 @@
  *   must never crash the plugin (design.md §3.1 "读取" rule).
  * - All public operations are serialized through one promise chain, so
  *   concurrent upserts cannot interleave writes.
+ * - External edits (scripts/link-session.mjs, or a human editing the JSON)
+ *   are hot-reloaded: every operation first checks the file mtime and
+ *   re-reads a changed file, so out-of-process writers are picked up live
+ *   without a restart.
  */
-import { copyFile, mkdir, readFile, rename, writeFile } from "node:fs/promises";
+import { copyFile, mkdir, readFile, rename, stat, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 import { randomUUID } from "node:crypto";
 import {
@@ -33,8 +37,17 @@ import { withCustomCategory } from "./taxonomy.js";
 export function openStore({ file, logger = console, now = () => new Date().toISOString(), seedTaxonomy }) {
   const seed = seedTaxonomy === undefined ? undefined : validateTaxonomy(seedTaxonomy);
   let value = null;
+  let lastMtime = null;
+  const mtimeOf = async () => {
+    try {
+      return (await stat(file)).mtimeMs;
+    } catch {
+      return null;
+    }
+  };
   let chain = (async () => {
     value = await loadFromDisk(file, logger, seed);
+    lastMtime = await mtimeOf();
   })();
 
   const run = (task) => {
@@ -46,13 +59,28 @@ export function openStore({ file, logger = console, now = () => new Date().toISO
 
   const snapshot = () => structuredClone(value);
 
+  /**
+   * Reload the file when an out-of-process writer changed it (mtime check
+   * against the last load/persist). Accepts the tiny lost-update window
+   * between this check and our own persist — the sidecar is a single-user,
+   * low-frequency file. Reload uses the startup corruption-recovery path.
+   */
+  const maybeReload = async () => {
+    const current = await mtimeOf();
+    if (current === lastMtime) return;
+    value = await loadFromDisk(file, logger, seed);
+    lastMtime = await mtimeOf();
+  };
+
   return {
     file,
     schemaVersion: SCHEMA_VERSION,
     /** Current store snapshot (deep clone). */
     async read() {
-      await chain;
-      return snapshot();
+      return run(async () => {
+        await maybeReload();
+        return snapshot();
+      });
     },
     /**
      * Upsert one session's annotation, or remove it when `annotation` is null.
@@ -68,6 +96,7 @@ export function openStore({ file, logger = console, now = () => new Date().toISO
      */
     upsert({ sessionId, workspaceId, annotation }) {
       return run(async () => {
+        await maybeReload();
         if (typeof sessionId !== "string" || sessionId.trim() === "") {
           throw new ValidationError("upsert requires a non-empty sessionId");
         }
@@ -75,6 +104,7 @@ export function openStore({ file, logger = console, now = () => new Date().toISO
           if (Object.hasOwn(value.sessions, sessionId)) {
             delete value.sessions[sessionId];
             await persist(file, value);
+            lastMtime = await mtimeOf();
           }
           return snapshot();
         }
@@ -109,6 +139,7 @@ export function openStore({ file, logger = console, now = () => new Date().toISO
           if (!value.taxonomy.tags.includes(tag)) value.taxonomy.tags.push(tag);
         }
         await persist(file, value);
+        lastMtime = await mtimeOf();
         return snapshot();
       });
     },
@@ -118,8 +149,10 @@ export function openStore({ file, logger = console, now = () => new Date().toISO
      */
     setTaxonomy(taxonomy) {
       return run(async () => {
+        await maybeReload();
         value.taxonomy = validateTaxonomy(taxonomy);
         await persist(file, value);
+        lastMtime = await mtimeOf();
         return snapshot();
       });
     },

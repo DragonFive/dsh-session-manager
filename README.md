@@ -105,6 +105,20 @@ groups:
   - 行上显示关联任务徽章（任务名，悬停显示 slug）；
   - 新增**搜索框**：按会话标题 / 路径 / workspace / 备注 / 标签 / 关联任务名（及 slug）
     大小写不敏感子串过滤，与筛选条件叠加。
+- **Agent 自助关联（免手动）**：store 支持**外部修改热重载**——每次操作前比对 sidecar 的
+  mtime，文件被进程外改过就按启动同款恢复路径重读，所以外部写入无需重启即可生效。
+  仓库自带 `scripts/link-session.mjs`，会话里的 agent 干活时可自助写关联：
+  ```bash
+  node scripts/link-session.mjs <sessionId> <taskId> [status] [priority]   # 建立关联
+  node scripts/link-session.mjs <sessionId> --clear                        # 解除关联
+  node scripts/link-session.mjs --list                                    # 查看已有关联
+  ```
+  脚本写入前用与 host 相同的 schema 校验整份文档，原子写（临时文件 + rename），
+  坏编辑进不了 sidecar。sidecar 路径可用 `DSM_ANNOTATIONS_FILE` 覆盖（测试用）。
+- **为什么不全自动推断**：会话元数据（cwd / 标题 / 时间）里没有任务归属信息（同仓库所有
+  任务共享一个 cwd），扫描会话记录里的 trellis 引用覆盖率也很低（实测某工作区 43 个会话
+  仅 3 个提及任务路径），而错误关联比没有关联更糟——由知道上下文的 agent 或人来写
+  准确性最高，热重载 + 脚本就是把这条路径打通。
 - 关联关系是纯 sidecar 数据：删掉标注即解除关联，不影响 `.trellis` 任何内容。
 
 
