@@ -260,3 +260,23 @@ dsh plugin --profile web remove dsh-session-manager
   临时文件 + rename 原子落盘（store 同款）。
 - **P3 导出 Toast**：成功/失败提示用 ui-primitives 官方 `Toast` 组件（body portal、自动消隐），
   同时保留内联详情行（含文件与备份路径）便于复制。
+
+## 开发知识库（docs/）
+
+- [docs/dsh-plugin-api.md](docs/dsh-plugin-api.md) — DSH 第三方插件 API 调研：manifest、host/client 结构、
+  Connection Fetch 路由、slot 契约、tsdown 构建配方、升级兼容策略。**新会话开发前必读**。
+- [docs/p1-implementation-notes.md](docs/p1-implementation-notes.md) — P1 落地实测的 API 事实
+  （shell.overlay 弹窗模式、ui-primitives 基线、ctx.get 可选服务等）与勘误。
+- [docs/p3-implementation-notes.md](docs/p3-implementation-notes.md) / [docs/p3-check-notes.md](docs/p3-check-notes.md) —
+  P3 设计决策与检查轮修复记录（导出安全、树组装防御）。
+
+## 多机协作约定
+
+- **开发机**（如 Mac）：clone → 改代码 → `pnpm run build` + `node --test` 全绿 →
+  `dsh plugin --profile web remove dsh-session-manager && dsh plugin --profile web add file:$(pwd)` →
+  重启本机 dsh web 冒烟 → commit + push。
+- **生产机**（910C103）：从 GitHub 拉取合格版本安装：
+  `dsh plugin --profile web add git+ssh://git@github.com:DragonFive/dsh-session-manager.git#<commit或tag>`（需重启）。
+  升级 = remove + add 新 ref + 重启。
+- 版本基线：开发于 dsh `0.1.7-alpha.2`；换机后先 `dsh -V` 对齐，版本不同需同步调整
+  package.json 的 `engines.dsh` 与 peerDependencies 范围。
