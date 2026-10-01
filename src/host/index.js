@@ -36,6 +36,8 @@ import {
   handleGetPromptsConfig,
   handleGetSync,
   handleGetTrellisConfig,
+  handleListCollected,
+  handleRestoreSession,
   handleRunSync,
   handleSavePrompts,
   handleSetPromptsConfig,
@@ -98,6 +100,13 @@ export function apply(ctx, config = {}) {
     configFile: join(storageDir, "settings.json"),
     deployTarget: join(homedir(), ".dsh", "profiles", "web", "cordis.patch.yml"),
     annotationsFile: join(storageDir, "annotations.json"),
+    // Session cwd lookup for the export metadata (fail-soft, per call).
+    listSessionHeaders: async () => {
+      const sessionQuery = ctx.get("sessionQuery");
+      if (sessionQuery === undefined) return [];
+      const records = await sessionQuery.listSessions();
+      return records.map((record) => ({ id: record.header.id, cwd: record.header.cwd }));
+    },
     logger,
   });
 
@@ -204,6 +213,18 @@ export function apply(ctx, config = {}) {
       methods: ["POST"],
       requestBody: "buffered",
       fetch: guarded(() => handleRunSync(syncManager)),
+    },
+    {
+      path: ROUTE_PATHS.syncSessions,
+      methods: ["GET"],
+      requestBody: "buffered",
+      fetch: guarded(() => handleListCollected(syncManager)),
+    },
+    {
+      path: ROUTE_PATHS.syncRestore,
+      methods: ["POST"],
+      requestBody: "buffered",
+      fetch: guarded(async (request) => handleRestoreSession(syncManager, await readJsonBody(request))),
     },
   ];
 

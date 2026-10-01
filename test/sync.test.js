@@ -227,3 +227,108 @@ test("run() skips session export when nothing is flagged", async () => {
   const result = await manager.run();
   assert.match(result.lines.join("\n"), /没有标记「同步到仓库」的会话/);
 });
+
+const zstdAvailable = await new Promise((resolve) => {
+  execFile("zstd", ["--version"], (error) => resolve(error === null));
+});
+
+test(
+  "listCollected + restore: byte-identical path, cwd rewrite, collision guard",
+  { skip: zstdAvailable ? false : "zstd not installed" },
+  async () => {
+    const dir = await tempDir();
+    const { work } = await seededRepos(dir);
+    // A real zstd session transcript with a header line carrying the cwd
+    // (file-to-file compression — execFile's utf8 stdout would corrupt it).
+    const raw =
+      `${JSON.stringify({ type: "session", version: 3, id: "session-flagged", createdAt: 1, cwd: "/Users/x/code/repo-a" })}\n` +
+      '{"type":"message"}\n';
+    const sessionsRoot = join(dir, "sessions-src");
+    await mkdir(join(sessionsRoot, "--Users-x-code-repo-a--", "session-flagged"), { recursive: true });
+    const sourceZst = join(sessionsRoot, "--Users-x-code-repo-a--", "session-flagged", "session.v3.jsonl.zstd");
+    const rawFile = join(dir, "raw.tmp");
+    await writeFile(rawFile, raw);
+    await new Promise((resolve, reject) => {
+      execFile("zstd", ["-f", "-o", sourceZst, rawFile], (error) => (error ? reject(error) : resolve()));
+    });
+    const annotationsFile = join(dir, "annotations.json");
+    await writeFile(
+      annotationsFile,
+      JSON.stringify({
+        schemaVersion: 1,
+        taxonomy: { categories: [{ id: "misc", label: "杂项" }], tags: [], statuses: [{ id: "todo", label: "待办" }], priorities: [{ id: "normal", label: "一般" }] },
+        sessions: { "session-flagged": { status: "doing", priority: "normal", tags: [], sync: true } },
+      }),
+    );
+    const manager = managerFor(dir, {
+      sessionsSource: sessionsRoot,
+      annotationsFile,
+      listSessionHeaders: async () => [{ id: "session-flagged", cwd: "/Users/x/code/repo-a" }],
+    });
+    await manager.setConfig({ syncRepoPath: work, syncMachine: "mac" });
+    await manager.run();
+
+    // The export metadata carries the original cwd for the restore prefill.
+    const meta = JSON.parse(await readFile(join(work, "sessions", "session-flagged", "meta.json"), "utf8"));
+    assert.equal(meta.sourceCwd, "/Users/x/code/repo-a");
+
+    // Another machine: a fresh sessions root, same repo.
+    const otherManager = openSyncManager({
+      configFile: join(dir, "settings-other.json"),
+      deployTarget: join(dir, "deployed-other", "cordis.patch.yml"),
+      sessionsSource: join(dir, "sessions-other"),
+      annotationsFile: join(dir, "annotations-other.json"),
+      logger: silentLogger,
+    });
+    await otherManager.setConfig({ syncRepoPath: work, syncMachine: "910c103" });
+
+    let collected = await otherManager.listCollected();
+    assert.equal(collected.sessions.length, 1);
+    assert.equal(collected.sessions[0].local, false);
+
+    // Byte-identical restore lands in the original workspace directory.
+    const asIs = await otherManager.restore({ sessionId: "session-flagged" });
+    assert.equal(asIs.rewroteCwd, false);
+    assert.ok(asIs.directory.includes(join("--Users-x-code-repo-a--", "session-flagged")));
+    collected = await otherManager.listCollected();
+    assert.equal(collected.sessions[0].local, true);
+    // Restoring again is rejected.
+    await assert.rejects(() => otherManager.restore({ sessionId: "session-flagged" }), /已存在/);
+
+    // A third machine with a different layout: rewrite the header cwd.
+    const thirdManager = openSyncManager({
+      configFile: join(dir, "settings-third.json"),
+      deployTarget: join(dir, "deployed-third", "cordis.patch.yml"),
+      sessionsSource: join(dir, "sessions-third"),
+      annotationsFile: join(dir, "annotations-third.json"),
+      logger: silentLogger,
+    });
+    await thirdManager.setConfig({ syncRepoPath: work, syncMachine: "910c103" });
+    const rewritten = await thirdManager.restore({ sessionId: "session-flagged", targetCwd: "/home/maxl/code/repo-b" });
+    assert.equal(rewritten.rewroteCwd, true);
+    assert.ok(rewritten.directory.includes(join("--home-maxl-code-repo-b--", "session-flagged")));
+    const restoredText = await new Promise((resolve, reject) => {
+      execFile(
+        "zstd",
+        ["-dc", join(dir, "sessions-third", "--home-maxl-code-repo-b--", "session-flagged", "session.v3.jsonl.zstd")],
+        { maxBuffer: 1 << 26 },
+        (error, stdout) => (error ? reject(error) : resolve(stdout.toString("utf8"))),
+      );
+    });
+    const [headerLine, messageLine] = restoredText.split("\n");
+    assert.equal(JSON.parse(headerLine).cwd, "/home/maxl/code/repo-b");
+    assert.equal(messageLine, '{"type":"message"}');
+    // An invalid target path is rejected before anything is written.
+    const fourthManager = openSyncManager({
+      configFile: join(dir, "settings-fourth.json"),
+      deployTarget: join(dir, "deployed-fourth", "cordis.patch.yml"),
+      sessionsSource: join(dir, "sessions-fourth"),
+      logger: silentLogger,
+    });
+    await fourthManager.setConfig({ syncRepoPath: work });
+    await assert.rejects(
+      () => fourthManager.restore({ sessionId: "session-flagged", targetCwd: "relative/path" }),
+      /绝对路径/,
+    );
+  },
+);

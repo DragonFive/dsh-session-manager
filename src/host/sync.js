@@ -19,7 +19,7 @@
  */
 import { execFile } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { copyFile, mkdir, readdir, readFile, rename, stat, writeFile } from "node:fs/promises";
+import { copyFile, mkdir, readdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
 import { homedir, hostname } from "node:os";
 import { dirname, isAbsolute, join } from "node:path";
 import { ValidationError } from "./schema.js";
@@ -41,6 +41,57 @@ export function detectMachine() {
   const host = hostname();
   if (/910|c103/i.test(host)) return "910c103";
   return "mac";
+}
+
+const ZSTD_MAX_BUFFER = 64 * 1024 * 1024;
+
+/**
+ * Decompress a zstd file to text (the session transcript is utf8 JSONL;
+ * stdout utf8 decoding is safe here — the payload is text).
+ */
+function decompressZstd(file) {
+  return new Promise((resolve, reject) => {
+    execFile("zstd", ["-dc", file], { timeout: GIT_TIMEOUT_MS, maxBuffer: ZSTD_MAX_BUFFER }, (error, stdout, stderr) => {
+      if (error) {
+        reject(
+          new SyncError(
+            `解压会话记录失败（本机需要 zstd：macOS brew install zstd / Linux apt install zstd）：${(stderr || error.message).toString().trim().slice(0, 300)}`,
+          ),
+        );
+      } else {
+        resolve(stdout.toString("utf8"));
+      }
+    });
+  });
+}
+
+/**
+ * Compress text into a zstd file, file-to-file. Never shuttles compressed
+ * bytes through execFile's stdout — it is utf8-decoded to a string by
+ * default, which corrupts binary data (a hard-won lesson).
+ */
+function compressZstdToFile(targetFile, text) {
+  return (async () => {
+    const rawFile = `${targetFile}.${process.pid}.${randomUUID()}.raw`;
+    await writeFile(rawFile, text, "utf8");
+    try {
+      await new Promise((resolve, reject) => {
+        execFile("zstd", ["-f", "-o", targetFile, rawFile], { timeout: GIT_TIMEOUT_MS }, (error, _stdout, stderr) => {
+          if (error) {
+            reject(
+              new SyncError(
+                `压缩会话记录失败（本机需要 zstd：macOS brew install zstd / Linux apt install zstd）：${(stderr || error.message).toString().trim().slice(0, 300)}`,
+              ),
+            );
+          } else {
+            resolve();
+          }
+        });
+      });
+    } finally {
+      await rm(rawFile, { force: true }).catch(() => {});
+    }
+  })();
 }
 
 /**
@@ -78,6 +129,7 @@ export function openSyncManager({
   deployTarget,
   sessionsSource = join(homedir(), ".dsh", "sessions"),
   annotationsFile,
+  listSessionHeaders,
   logger = console,
 }) {
   async function readConfigFile() {
@@ -175,6 +227,20 @@ export function openSyncManager({
     return { dirty, lastCommit };
   }
 
+  /** Every sessionId that already exists under <sessionsSource>/<workspace>/. */
+  async function localSessionIds() {
+    const workspaces = await readdir(sessionsSource, { withFileTypes: true }).catch(() => []);
+    const ids = new Set();
+    for (const entry of workspaces) {
+      if (!entry.isDirectory()) continue;
+      const sessions = await readdir(join(sessionsSource, entry.name), { withFileTypes: true }).catch(() => []);
+      for (const session of sessions) {
+        if (session.isDirectory()) ids.add(session.name);
+      }
+    }
+    return ids;
+  }
+
   /**
    * Copy every `sync: true` session's transcript into the repo's sessions/
    * directory (sessionId/session.v3.jsonl.zstd + meta.json) and regenerate
@@ -198,6 +264,9 @@ export function openSyncManager({
       return;
     }
     // Session transcripts live at <sessionsSource>/<workspace-dir>/<sessionId>/.
+    // Resolve the original cwd of each flagged session for the restore path.
+    const headers = await Promise.resolve(listSessionHeaders?.() ?? []).catch(() => []);
+    const cwdOf = new Map(headers.map((header) => [header.id, header.cwd]));
     const workspaces = await readdir(sessionsSource, { withFileTypes: true }).catch(() => []);
     let exported = 0;
     let missing = 0;
@@ -231,6 +300,7 @@ export function openSyncManager({
             sessionId,
             exportedAt: new Date().toISOString(),
             sourceWorkspace: source.workspace,
+            sourceCwd: cwdOf.get(sessionId) ?? null,
             sizeBytes: source.size,
             annotation: {
               status: annotation.status ?? null,
@@ -435,6 +505,100 @@ export function openSyncManager({
       }
       step("完成。提示词即时生效；cordis.patch.yml 改动需重启 dsh web。");
       return { lines, pushed, deployedConfig };
+    },
+
+    /**
+     * Collected sessions in the repo (the 收藏 tab): every sessions/<id>/
+     * meta.json plus a `local` flag for "already restored on this machine".
+     */
+    async listCollected() {
+      const settings = await resolveEffective();
+      if (settings.repoPath === null) {
+        throw new SyncError("未配置同步仓库路径（同步标签页里填仓库路径 / 仓库地址）");
+      }
+      const indexDir = join(settings.repoPath, "sessions");
+      const entries = await readdir(indexDir, { withFileTypes: true }).catch(() => []);
+      const local = await localSessionIds();
+      const collected = [];
+      for (const entry of entries) {
+        if (!entry.isDirectory()) continue;
+        const meta = await readFile(join(indexDir, entry.name, "meta.json"), "utf8")
+          .then((text) => JSON.parse(text))
+          .catch(() => null);
+        if (meta === null) continue;
+        collected.push({ ...meta, local: local.has(entry.name) });
+      }
+      collected.sort((left, right) => (left.exportedAt < right.exportedAt ? 1 : -1));
+      return { sessions: collected };
+    },
+
+    /**
+     * Restore a collected session onto this machine so it can be continued.
+     * With `targetCwd` the session header's cwd is rewritten to that path
+     * (cross-machine layouts differ); without it the transcript is restored
+     * byte-identical into its original workspace directory.
+     * @param {{ sessionId: string, targetCwd?: string | null }} input
+     */
+    async restore({ sessionId, targetCwd }) {
+      if (typeof sessionId !== "string" || sessionId.trim() === "") {
+        throw new SyncError("sessionId 必须是非空字符串");
+      }
+      const settings = await resolveEffective();
+      if (settings.repoPath === null) {
+        throw new SyncError("未配置同步仓库路径（同步标签页里填仓库路径 / 仓库地址）");
+      }
+      const sourceDir = join(settings.repoPath, "sessions", sessionId);
+      const sourceZst = join(sourceDir, "session.v3.jsonl.zstd");
+      const meta =
+        (await readFile(join(sourceDir, "meta.json"), "utf8")
+          .then((text) => JSON.parse(text))
+          .catch(() => null)) ?? {};
+      if ((await stat(sourceZst).catch(() => null)) === null) {
+        throw new SyncError(`仓库里没有会话 ${sessionId} 的记录文件`);
+      }
+      const local = await localSessionIds();
+      if (local.has(sessionId)) {
+        throw new SyncError(`会话 ${sessionId} 已存在于本机，无需恢复`);
+      }
+
+      const target = typeof targetCwd === "string" ? targetCwd.trim() : "";
+      let directory;
+      if (target === "") {
+        // Byte-identical restore into the original workspace directory.
+        const workspaceDir = meta.sourceWorkspace ?? null;
+        if (typeof workspaceDir !== "string" || workspaceDir === "") {
+          throw new SyncError("缺少原工作区信息，请填写目标工作区路径后重试");
+        }
+        directory = join(sessionsSource, workspaceDir, sessionId);
+        await mkdir(directory, { recursive: true });
+        await copyFile(sourceZst, join(directory, "session.v3.jsonl.zstd"));
+        return { sessionId, directory, rewroteCwd: false };
+      }
+
+      if (!isAbsolute(target)) {
+        throw new SyncError(`目标工作区路径必须是绝对路径："${target}"`);
+      }
+      // Rewrite the header cwd (the workspace dir name derives from it:
+      // cwd with every "/" replaced by "-", wrapped in leading/trailing "-").
+      const raw = await decompressZstd(sourceZst);
+      const newline = raw.indexOf("\n");
+      if (newline === -1) throw new SyncError("会话记录格式异常（无头部行）");
+      let header;
+      try {
+        header = JSON.parse(raw.slice(0, newline));
+      } catch {
+        throw new SyncError("会话记录头部不是合法 JSON");
+      }
+      header.cwd = target;
+      const rewritten = `${JSON.stringify(header)}${raw.slice(newline)}`;
+      // Workspace dir naming (verified against real ~/.dsh/sessions entries,
+      // e.g. /tmp → --tmp--): strip the leading slash, turn every internal
+      // slash into a dash, wrap in "--" on both ends.
+      const dirName = `--${target.replace(/^\//, "").replace(/\//g, "-")}--`;
+      directory = join(sessionsSource, dirName, sessionId);
+      await mkdir(directory, { recursive: true });
+      await compressZstdToFile(join(directory, "session.v3.jsonl.zstd"), rewritten);
+      return { sessionId, directory, rewroteCwd: true };
     },
   };
 }

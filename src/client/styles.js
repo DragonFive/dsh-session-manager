@@ -62,6 +62,8 @@ export const styles = String.raw`
 .dsm-badge[data-kind=archived]{border-color:transparent;background:var(--dsw-alias-bg-module-platform,#3a3a40);color:var(--dsw-alias-label-secondary,#c6c6cc)}
 .dsm-badge[data-kind=sync]{border-color:transparent;background:var(--dsw-alias-state-success-primary,#46a758);color:#fff}
 .dsm-sync-toggle{display:flex;align-items:center;gap:8px;font-size:13px;font-weight:500;color:var(--dsw-alias-label-primary,#e9e9ec);cursor:pointer}
+.dsm-restore-form{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+.dsm-restore-input{height:26px;font-size:11px;min-width:200px}
 .dsm-quick{flex:none;display:flex;gap:4px}
 .dsm-quickbtn{appearance:none;border:1px solid var(--dsw-alias-border-l2,#2a2a2e);border-radius:6px;background:none;color:var(--dsw-alias-label-secondary,#c6c6cc);font:inherit;font-size:11px;padding:2px 6px;cursor:pointer}
 .dsm-quickbtn:hover{border-color:var(--dsw-alias-label-dimmed,#77777e)}

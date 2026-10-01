@@ -131,6 +131,23 @@ export function postSyncRun() {
   return request("/api/dsh-session-manager/sync/run", { method: "POST" });
 }
 
+/** GET /api/dsh-session-manager/sync/sessions — collected sessions in the sync repo. */
+export function fetchCollectedSessions() {
+  return request("/api/dsh-session-manager/sync/sessions");
+}
+
+/**
+ * POST /api/dsh-session-manager/sync/restore — restore a collected session
+ * onto this machine (targetCwd rewrites the session header's cwd).
+ * @param {{ sessionId: string, targetCwd?: string | null }} input
+ */
+export function postRestoreSession(input) {
+  return request("/api/dsh-session-manager/sync/restore", {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+}
+
 /**
  * POST /api/dsh-session-manager/trellis/config — set or reset
  * (null → default) the note export root.

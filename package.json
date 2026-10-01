@@ -1,7 +1,7 @@
 {
   "name": "dsh-session-manager",
   "version": "0.1.0",
-  "description": "Session management for DeepSeek Harness Web: category/tag/status/priority annotations with a board panel, a /prompt slash-command prompt library (YAML-backed), and a read-only Trellis milestone board with ob_note markdown export.",
+  "description": "Session management for DeepSeek Harness Web: category/tag/status/priority annotations with a board panel, a /prompt slash-command prompt library with a visual editor, a read-only Trellis milestone board with ob_note markdown export, session-task linkage, and a git-backed config sync (prompts / provider config / machine memory / opt-in important-session export with cross-machine restore).",
   "type": "module",
   "private": true,
   "main": "lib/index.js",
