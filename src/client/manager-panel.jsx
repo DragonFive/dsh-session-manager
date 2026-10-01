@@ -48,7 +48,7 @@ export function ManagerPanel({ t, openSession }) {
         {tab === "trellis" && <TrellisPanel t={t} openSession={openSession} />}
         {tab === "prompts" && <PromptsPanel t={t} />}
         {tab === "sync" && <SyncPanel t={t} />}
-        {tab === "collected" && <CollectedPanel t={t} />}
+        {tab === "collected" && <CollectedPanel t={t} openSession={openSession} />}
         {tab === "stats" && <StatsPanel t={t} />}
       </div>
     </div>

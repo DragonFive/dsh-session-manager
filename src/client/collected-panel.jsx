@@ -11,7 +11,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { fetchCollectedSessions, postRestoreSession } from "./api.js";
 
-export function CollectedPanel({ t }) {
+export function CollectedPanel({ t, openSession }) {
   const [data, setData] = useState(null);
   const [phase, setPhase] = useState("loading");
   const [errorMsg, setErrorMsg] = useState("");
@@ -135,8 +135,19 @@ export function CollectedPanel({ t }) {
                   <td>{session.exportedAt ?? "—"}</td>
                   <td>
                     {session.local ? (
-                      <span className="dsm-badge" data-kind="sync">
-                        {t("restoreLocal")}
+                      <span className="dsm-restore-form">
+                        <span className="dsm-badge" data-kind="sync">
+                          {t("restoreLocal")}
+                        </span>
+                        <button
+                          type="button"
+                          className="dsm-btn"
+                          disabled={openSession === undefined}
+                          title={session.sessionId}
+                          onClick={() => openSession?.(session.sessionId)}
+                        >
+                          {t("collectedOpen")}
+                        </button>
                       </span>
                     ) : restoring === session.sessionId ? (
                       <span className="dsm-restore-form">
