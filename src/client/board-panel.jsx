@@ -4,10 +4,19 @@
  * filters (plus unannotated-only), updated-time ordering, an Eisenhower
  * quadrant view (design §3.2), row click-through via `ctx.uiWorkspace`,
  * and inline status/priority quick edits through the same POST route.
+ * Unannotated sessions read their status/priority at the effective
+ * 待办/一般 defaults everywhere (annotation-defaults.js); the sidecar stays
+ * sparse until a human annotation is saved.
  */
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { fetchBoard, postAnnotation } from "./api.js";
 import { subscribeAnnotationsChanged } from "./annotate-bus.js";
+import {
+  DEFAULT_PRIORITY_ID,
+  DEFAULT_STATUS_ID,
+  effectivePriorityId,
+  effectiveStatusId,
+} from "./annotation-defaults.js";
 
 const GROUP_MODES = ["category", "status", "priority", "tag"];
 const UNANNOTATED_KEY = "__unannotated__";
@@ -107,8 +116,9 @@ export function BoardPanel({ t, openSession }) {
       const annotation = session.annotation;
       if (filters.unannotatedOnly && annotation !== null) return false;
       if (filters.categories.size > 0 && !filters.categories.has(annotation?.category ?? UNANNOTATED_KEY)) return false;
-      if (filters.statuses.size > 0 && !filters.statuses.has(annotation?.status ?? UNANNOTATED_KEY)) return false;
-      if (filters.priorities.size > 0 && !filters.priorities.has(annotation?.priority ?? UNANNOTATED_KEY)) return false;
+      // Unannotated sessions filter by their effective 待办/一般 defaults.
+      if (filters.statuses.size > 0 && !filters.statuses.has(effectiveStatusId(annotation, data?.taxonomy))) return false;
+      if (filters.priorities.size > 0 && !filters.priorities.has(effectivePriorityId(annotation, data?.taxonomy))) return false;
       if (filters.tags.size > 0) {
         const tags = annotation?.tags ?? [];
         if (![...filters.tags].some((tag) => tags.includes(tag))) return false;
@@ -124,7 +134,9 @@ export function BoardPanel({ t, openSession }) {
 
   const quickPatch = useCallback(
     async (session, patch) => {
-      const base = session.annotation ?? { tags: [], status: "todo", priority: "normal" };
+      // Unannotated sessions carry their effective 待办/一般 defaults into
+      // the first saved annotation; the patch overrides the patched field.
+      const base = session.annotation ?? { tags: [], status: DEFAULT_STATUS_ID, priority: DEFAULT_PRIORITY_ID };
       try {
         await postAnnotation({
           sessionId: session.sessionId,
@@ -291,6 +303,7 @@ export function BoardPanel({ t, openSession }) {
         ) : viewMode === "quadrant" ? (
           <QuadrantView
             sessions={sorted}
+            taxonomy={taxonomy}
             maps={maps}
             t={t}
             onOpen={openSessionById}
@@ -349,9 +362,9 @@ function GroupView({ sessions, groupBy, taxonomy, maps, t, onOpen, onQuickPatch 
       } else if (groupBy === "category") {
         push(annotation?.category ?? UNANNOTATED_KEY, session);
       } else if (groupBy === "status") {
-        push(annotation?.status ?? UNANNOTATED_KEY, session);
+        push(effectiveStatusId(annotation, taxonomy), session);
       } else {
-        push(annotation?.priority ?? UNANNOTATED_KEY, session);
+        push(effectivePriorityId(annotation, taxonomy), session);
       }
     }
     const order = [];
@@ -400,6 +413,7 @@ function GroupView({ sessions, groupBy, taxonomy, maps, t, onOpen, onQuickPatch 
         <BoardRow
           key={session.sessionId}
           session={session}
+          taxonomy={taxonomy}
           maps={maps}
           t={t}
           onOpen={onOpen}
@@ -410,26 +424,23 @@ function GroupView({ sessions, groupBy, taxonomy, maps, t, onOpen, onQuickPatch 
   ));
 }
 
-function QuadrantView({ sessions, maps, t, onOpen, onQuickPatch }) {
-  const { quadrants, unannotated } = useMemo(() => {
+function QuadrantView({ sessions, taxonomy, maps, t, onOpen, onQuickPatch }) {
+  const quadrants = useMemo(() => {
     const quadrants = { urgentImportant: [], importantNotUrgent: [], urgentNotImportant: [], neither: [] };
-    const unannotated = [];
     for (const session of sessions) {
-      const annotation = session.annotation;
-      if (annotation === null) {
-        // Design §3.2: unannotated sessions stay out of the quadrants.
-        unannotated.push(session);
-        continue;
-      }
-      const urgent = annotation.priority === "urgent" || session.running;
-      const important = annotation.priority === "urgent" || annotation.priority === "important";
+      // Unannotated sessions count as 一般 by default and flow into the
+      // quadrants like any annotated session (only priority + running
+      // matter here); the onlyUnannotated filter still isolates them.
+      const priority = effectivePriorityId(session.annotation, taxonomy);
+      const urgent = priority === "urgent" || session.running;
+      const important = priority === "urgent" || priority === "important";
       if (urgent && important) quadrants.urgentImportant.push(session);
       else if (important) quadrants.importantNotUrgent.push(session);
       else if (urgent) quadrants.urgentNotImportant.push(session);
       else quadrants.neither.push(session);
     }
-    return { quadrants, unannotated };
-  }, [sessions]);
+    return quadrants;
+  }, [sessions, taxonomy]);
 
   const cells = [
     { id: "urgentImportant", title: t("quadrantUrgentImportant"), sessions: quadrants.urgentImportant },
@@ -440,17 +451,6 @@ function QuadrantView({ sessions, maps, t, onOpen, onQuickPatch }) {
 
   return (
     <div>
-      {unannotated.length > 0 && (
-        <section className="dsm-group">
-          <div className="dsm-group-head">
-            <span className="dsm-group-title">{t("unclassified")}</span>
-            <span className="dsm-group-count">{unannotated.length}</span>
-          </div>
-          {unannotated.map((session) => (
-            <BoardRow key={session.sessionId} session={session} maps={maps} t={t} onOpen={onOpen} />
-          ))}
-        </section>
-      )}
       <div className="dsm-quadrants">
         {cells.map((cell) => (
           <div className="dsm-quadrant" key={cell.id}>
@@ -461,6 +461,7 @@ function QuadrantView({ sessions, maps, t, onOpen, onQuickPatch }) {
               <BoardRow
                 key={session.sessionId}
                 session={session}
+                taxonomy={taxonomy}
                 maps={maps}
                 t={t}
                 onOpen={onOpen}
@@ -474,8 +475,12 @@ function QuadrantView({ sessions, maps, t, onOpen, onQuickPatch }) {
   );
 }
 
-function BoardRow({ session, maps, t, onOpen, onQuickPatch }) {
+function BoardRow({ session, taxonomy, maps, t, onOpen, onQuickPatch }) {
   const annotation = session.annotation;
+  // Status/priority are always shown at their effective values: every
+  // session is 待办/一般 by default until a human annotation overrides it.
+  const statusId = effectiveStatusId(annotation, taxonomy);
+  const priorityId = effectivePriorityId(annotation, taxonomy);
   const sub = [
     session.workspaceTitle ?? session.cwd ?? "",
     formatRelative(session.updatedAt),
@@ -506,17 +511,17 @@ function BoardRow({ session, maps, t, onOpen, onQuickPatch }) {
             {t("archived")}
           </span>
         )}
+        {annotation !== null && annotation.category !== undefined && (
+          <span className="dsm-badge">{maps.categories.get(annotation.category) ?? annotation.category}</span>
+        )}
+        <span className="dsm-badge" data-kind={statusId}>
+          {maps.statuses.get(statusId) ?? statusId}
+        </span>
+        <span className="dsm-badge" data-kind={priorityId}>
+          {maps.priorities.get(priorityId) ?? priorityId}
+        </span>
         {annotation !== null && (
           <>
-            {annotation.category !== undefined && (
-              <span className="dsm-badge">{maps.categories.get(annotation.category) ?? annotation.category}</span>
-            )}
-            <span className="dsm-badge" data-kind={annotation.status}>
-              {maps.statuses.get(annotation.status) ?? annotation.status}
-            </span>
-            <span className="dsm-badge" data-kind={annotation.priority}>
-              {maps.priorities.get(annotation.priority) ?? annotation.priority}
-            </span>
             {(annotation.tags ?? []).slice(0, 3).map((tag) => (
               <span className="dsm-badge" key={tag}>
                 {tag}
@@ -528,17 +533,17 @@ function BoardRow({ session, maps, t, onOpen, onQuickPatch }) {
           </>
         )}
       </div>
-      {annotation !== null && onQuickPatch && (
+      {onQuickPatch && (
         <div className="dsm-quick" onClick={(event) => event.stopPropagation()}>
           <QuickDropdown
             kind="status"
-            value={annotation.status}
+            value={statusId}
             options={[...maps.statuses.entries()].map(([id, label]) => ({ id, label }))}
             onPick={(id) => onQuickPatch(session, { status: id })}
           />
           <QuickDropdown
             kind="priority"
-            value={annotation.priority}
+            value={priorityId}
             options={[...maps.priorities.entries()].map(([id, label]) => ({ id, label }))}
             onPick={(id) => onQuickPatch(session, { priority: id })}
           />

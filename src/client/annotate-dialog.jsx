@@ -9,8 +9,18 @@
 import { useEffect, useMemo, useState } from "react";
 import { Modal } from "@deepseek-ai/dsh-client-ui-primitives";
 import { fetchAnnotations, postAnnotation } from "./api.js";
+import { DEFAULT_PRIORITY_ID, DEFAULT_STATUS_ID } from "./annotation-defaults.js";
 
-const EMPTY = { category: undefined, tags: [], status: "todo", priority: "normal", notes: "" };
+// A fresh annotation starts from the board-wide effective defaults
+// (待办/一般); saving materializes them only because the dialog is a full
+// editor that always submits status/priority.
+const EMPTY = {
+  category: undefined,
+  tags: [],
+  status: DEFAULT_STATUS_ID,
+  priority: DEFAULT_PRIORITY_ID,
+  notes: "",
+};
 
 // Must stay in sync with CUSTOM_CATEGORY_PREFIX in src/host/taxonomy.js:
 // ids in this namespace are auto-registered into the taxonomy on save.
@@ -44,8 +54,8 @@ export function AnnotateDialog({ open, onClose, sessionId, displayTitle, onSaved
             ? {
                 category: existing.category,
                 tags: [...(existing.tags ?? [])],
-                status: existing.status ?? "todo",
-                priority: existing.priority ?? "normal",
+                status: existing.status ?? DEFAULT_STATUS_ID,
+                priority: existing.priority ?? DEFAULT_PRIORITY_ID,
                 notes: existing.notes ?? "",
               }
             : EMPTY,
