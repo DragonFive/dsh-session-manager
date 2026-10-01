@@ -10,16 +10,18 @@ import { useState } from "react";
 import { BoardPanel } from "./board-panel.jsx";
 import { CollectedPanel } from "./collected-panel.jsx";
 import { PromptsPanel } from "./prompts-panel.jsx";
+import { StatsPanel } from "./stats-panel.jsx";
 import { SyncPanel } from "./sync-panel.jsx";
 import { TrellisPanel } from "./trellis-panel.jsx";
 
-const TABS = ["sessions", "trellis", "prompts", "sync", "collected"];
+const TABS = ["sessions", "trellis", "prompts", "sync", "collected", "stats"];
 const TAB_LABELS = {
   sessions: "tabSessions",
   trellis: "tabTrellis",
   prompts: "tabPrompts",
   sync: "tabSync",
   collected: "tabCollected",
+  stats: "tabStats",
 };
 
 export function ManagerPanel({ t, openSession }) {
@@ -47,6 +49,7 @@ export function ManagerPanel({ t, openSession }) {
         {tab === "prompts" && <PromptsPanel t={t} />}
         {tab === "sync" && <SyncPanel t={t} />}
         {tab === "collected" && <CollectedPanel t={t} />}
+        {tab === "stats" && <StatsPanel t={t} />}
       </div>
     </div>
   );

@@ -164,6 +164,21 @@ groups:
 - 典型工作流：Mac 上给重要会话打「同步到仓库」标 → 点同步推上 GitHub → 910C103
   「收藏」标签里看到它 → 填本机仓库路径恢复 → 接着干。
 
+### P7：Token 用量统计
+
+- **「统计」标签**（看板第六个标签）：从本机会话记录（`~/.dsh/sessions`）聚合模型用量，
+  口径对标 aio-coding-hub 的 request_logs（输入 / 输出 / 缓存读 / 总 tokens + 请求数）：
+  - **总览卡片**：总 tokens / 输入 / 输出 / 缓存读 / 请求数 / 会话数；
+  - **按模型**：provider + model 分组，请求数与四类 token 汇总，条形对比；
+  - **按日期**：本机时区按天聚合（CSS 条形，零图表依赖）；
+  - **消耗 Top 会话**：标题来自 sessionQuery（fail-soft 回退 cwd 名）；
+  - 时间范围切换：7 / 30 / 90 天 / 全部。
+- **数据源**：会话 JSONL 里每条 `assistant/message` 记录的 `time` /
+  `source.provider` / `source.model` / `usage.{inputTokens,outputTokens,totalTokens,cacheReadTokens}`。
+  解压用 zstd CLI（本机需安装）；**按文件 mtime+size 缓存**，未变化的记录不重扫
+  （实测 31 个会话 / 10.7MB 压缩 / 1581 条用量，全量扫描约 200ms）；
+  单个损坏/写一半的记录文件跳过并告警，不拖垮整个统计。
+
 ## 架构
 
 ```

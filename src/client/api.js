@@ -159,3 +159,12 @@ export function postTrellisConfig(exportRoot) {
     body: JSON.stringify({ exportRoot }),
   });
 }
+
+/**
+ * GET /api/dsh-session-manager/stats?days=N — aggregated token usage
+ * (summary / byDate / byModel / topSessions). days ≤ 0 means all time.
+ * @param {number} days
+ */
+export function fetchStats(days) {
+  return request(`/api/dsh-session-manager/stats?days=${encodeURIComponent(String(days))}`);
+}
