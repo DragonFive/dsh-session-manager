@@ -5,6 +5,9 @@
  * - `sidebar.panellist` id `dsm-board` — the Session Board sidebar entry
  *   (the list id is also the `main` keyed-slot panel key);
  * - layout `main` key `dsm-board` — the board panel itself;
+ * - `sidebar.panellist` id `dsm-trellis` (order 600, below the board icon) —
+ *   the Trellis milestone board entry (P3);
+ * - layout `main` key `dsm-trellis` — the Trellis board panel;
  * - `sidebar.workspaces.session.menu.item` id `dsm.annotate` (order 500,
  *   after the official pin/rename/fork/archive rows) — "标注…";
  * - `sidebar.workspaces.session.row.action` id `dsm.annotate-icon`
@@ -16,7 +19,7 @@
 import { useEffect, useState } from "react";
 // NOTE: ui-primitives exports each icon as `<Name>Regular` / `<Name>Medium`
 // (stroke-width variants) — there is no bare `IconChecklistOutline` export.
-import { IconChecklistOutlineRegular, IconListPenOutlineRegular, MenuItemButton } from "@deepseek-ai/dsh-client-ui-primitives";
+import { IconBranchOutlineRegular, IconChecklistOutlineRegular, IconListPenOutlineRegular, MenuItemButton } from "@deepseek-ai/dsh-client-ui-primitives";
 import { AnnotateDialog } from "./annotate-dialog.jsx";
 import { notifyAnnotationsChanged, requestAnnotate, subscribeAnnotate } from "./annotate-bus.js";
 import { BoardPanel } from "./board-panel.jsx";
@@ -24,8 +27,10 @@ import { NS, en, zh } from "./locales.js";
 import { registerPromptCommand } from "./prompt-command.jsx";
 import { PromptsSettingsTab } from "./prompts-settings.jsx";
 import { styles } from "./styles.js";
+import { TrellisPanel } from "./trellis-panel.jsx";
 
 export const PANEL_ID = "dsm-board";
+export const TRELLIS_PANEL_ID = "dsm-trellis";
 export const MENU_ITEM_ID = "dsm.annotate";
 export const ROW_ACTION_ID = "dsm.annotate-icon";
 export const OVERLAY_ID = "dsm.annotate-overlay";
@@ -71,6 +76,24 @@ export function apply(ctx) {
         locale: NS,
       },
       BoardPanelIcon,
+    ),
+  );
+
+  // P3: the Trellis milestone board — second panellist icon + main panel.
+  ctx.slots.inject("main", () =>
+    ctx.slots.register({ name: "main", key: TRELLIS_PANEL_ID, locale: NS }, TrellisPanel),
+  );
+
+  ctx.slots.inject("sidebar.panellist", () =>
+    ctx.slots.register(
+      {
+        name: "sidebar.panellist",
+        id: TRELLIS_PANEL_ID,
+        order: 600,
+        label: () => ctx.locale.bind(NS)("trellisPanelTitle"),
+        locale: NS,
+      },
+      TrellisPanelIcon,
     ),
   );
 
@@ -121,6 +144,11 @@ export function apply(ctx) {
 /** Sidebar panel glyph; the sidebar owns the button, label, and selected state. */
 function BoardPanelIcon({ size }) {
   return <IconChecklistOutlineRegular size={size} />;
+}
+
+/** Trellis board glyph (branch icon — the task tree metaphor). */
+function TrellisPanelIcon({ size }) {
+  return <IconBranchOutlineRegular size={size} />;
 }
 
 /** "标注…" menu row. Dismisses the menu and raises an annotate request. */

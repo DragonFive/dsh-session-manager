@@ -75,3 +75,37 @@ export function postPromptsConfig(promptsFile) {
     body: JSON.stringify({ promptsFile }),
   });
 }
+
+/** GET /api/dsh-session-manager/trellis — workspace task trees (read-only). */
+export function fetchTrellis() {
+  return request("/api/dsh-session-manager/trellis");
+}
+
+/**
+ * POST /api/dsh-session-manager/trellis/export — write the anchored markdown
+ * block into the target note (bare filename resolves against the export root).
+ * @param {string} file
+ */
+export function postTrellisExport(file) {
+  return request("/api/dsh-session-manager/trellis/export", {
+    method: "POST",
+    body: JSON.stringify({ file }),
+  });
+}
+
+/** GET /api/dsh-session-manager/trellis/config — current export root. */
+export function fetchTrellisConfig() {
+  return request("/api/dsh-session-manager/trellis/config");
+}
+
+/**
+ * POST /api/dsh-session-manager/trellis/config — set or reset
+ * (null → default) the note export root.
+ * @param {string | null} exportRoot
+ */
+export function postTrellisConfig(exportRoot) {
+  return request("/api/dsh-session-manager/trellis/config", {
+    method: "POST",
+    body: JSON.stringify({ exportRoot }),
+  });
+}

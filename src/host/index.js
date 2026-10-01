@@ -25,6 +25,7 @@ import { join } from "node:path";
 import { openStore } from "./store.js";
 import { validateTaxonomy } from "./schema.js";
 import { openPromptsLibrary } from "./prompts.js";
+import { openTrellisExport } from "./trellis.js";
 import {
   ROUTE_PATHS,
   HttpError,
@@ -32,8 +33,12 @@ import {
   handleGetAnnotations,
   handleGetPrompts,
   handleGetPromptsConfig,
+  handleGetTrellisConfig,
   handleSetPromptsConfig,
   handleSetTaxonomy,
+  handleSetTrellisConfig,
+  handleTrellis,
+  handleTrellisExport,
   handleUpsertAnnotation,
   jsonResponse,
   readJsonBody,
@@ -72,12 +77,21 @@ export function apply(ctx, config = {}) {
     logger,
   });
 
+  // Trellis export-root configuration (P3): same settings sidecar, key
+  // `trellisExportRoot`; re-read per request so config edits are live.
+  const trellisExport = openTrellisExport({
+    configFile: join(storageDir, "settings.json"),
+    logger,
+  });
+
   const deps = () => ({
     store,
     sessionQuery: ctx.get("sessionQuery"),
     workspaceRegistry: ctx.get("workspaceRegistry"),
     agents: ctx.get("agents"),
     sessionProjectionCache: ctx.get("sessionProjectionCache"),
+    trellis: trellisExport,
+    logger,
   });
 
   /** Convert thrown errors into plain HTTP responses; never leak stack traces. */
@@ -130,6 +144,27 @@ export function apply(ctx, config = {}) {
       fetch: guarded(async (request) => {
         if (request.method === "GET") return handleGetPromptsConfig(promptsLibrary);
         return handleSetPromptsConfig(promptsLibrary, await readJsonBody(request));
+      }),
+    },
+    {
+      path: ROUTE_PATHS.trellis,
+      methods: ["GET"],
+      requestBody: "buffered",
+      fetch: guarded(() => handleTrellis(deps())),
+    },
+    {
+      path: ROUTE_PATHS.trellisExport,
+      methods: ["POST"],
+      requestBody: "buffered",
+      fetch: guarded(async (request) => handleTrellisExport(deps(), await readJsonBody(request))),
+    },
+    {
+      path: ROUTE_PATHS.trellisConfig,
+      methods: ["GET", "POST"],
+      requestBody: "buffered",
+      fetch: guarded(async (request) => {
+        if (request.method === "GET") return handleGetTrellisConfig(trellisExport);
+        return handleSetTrellisConfig(trellisExport, await readJsonBody(request));
       }),
     },
   ];

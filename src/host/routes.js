@@ -9,12 +9,20 @@
 import { basename } from "node:path";
 import { ValidationError } from "./schema.js";
 import { PromptsError } from "./prompts.js";
+import {
+  TrellisError,
+  collectTrellisWorkspaces,
+  exportTrellisNote,
+} from "./trellis.js";
 
 const BOARD_PATH = "/api/dsh-session-manager/board";
 const ANNOTATIONS_PATH = "/api/dsh-session-manager/annotations";
 const TAXONOMY_PATH = "/api/dsh-session-manager/taxonomy";
 const PROMPTS_PATH = "/api/dsh-session-manager/prompts";
 const PROMPTS_CONFIG_PATH = "/api/dsh-session-manager/prompts/config";
+const TRELLIS_PATH = "/api/dsh-session-manager/trellis";
+const TRELLIS_EXPORT_PATH = "/api/dsh-session-manager/trellis/export";
+const TRELLIS_CONFIG_PATH = "/api/dsh-session-manager/trellis/config";
 
 const MAX_BODY_BYTES = 1 << 20; // 1 MiB, far above any single annotation
 
@@ -37,6 +45,9 @@ export const ROUTE_PATHS = Object.freeze({
   taxonomy: TAXONOMY_PATH,
   prompts: PROMPTS_PATH,
   promptsConfig: PROMPTS_CONFIG_PATH,
+  trellis: TRELLIS_PATH,
+  trellisExport: TRELLIS_EXPORT_PATH,
+  trellisConfig: TRELLIS_CONFIG_PATH,
 });
 
 /** JSON response helper (standard Fetch API, as the official routes use). */
@@ -200,6 +211,82 @@ export async function handleSetPromptsConfig(library, body) {
     if (error instanceof PromptsError) throw new HttpError(400, error.message);
     throw error;
   }
+}
+
+// ---------------------------------------------------------------------------
+// Trellis board (P3)
+// ---------------------------------------------------------------------------
+
+/**
+ * GET /trellis — task trees of every registered workspace (plus session-cwd
+ * roots that contain a .trellis). Read-only: this side never writes .trellis.
+ * @param {{ workspaceRegistry?: object, sessionQuery?: object, logger?: object }} deps
+ */
+export async function handleTrellis(deps) {
+  const workspaces = await collectTrellisWorkspaces({
+    workspaceRegistry: deps.workspaceRegistry,
+    sessionQuery: deps.sessionQuery,
+    logger: deps.logger,
+  });
+  return { workspaces, generatedAt: new Date().toISOString() };
+}
+
+/**
+ * POST /trellis/export — render the current trees and write the anchored
+ * markdown block into the target note (must live under the export root).
+ * @param {{ trellis: { getRoot(): Promise<{exportRoot: string}> },
+ *           workspaceRegistry?: object, sessionQuery?: object, logger?: object }} deps
+ * @param {unknown} body `{file: string}` — bare name or absolute path
+ */
+export async function handleTrellisExport(deps, body) {
+  if (!isPlainObjectBody(body)) {
+    throw new HttpError(400, "request body must be {file}");
+  }
+  const { file } = body;
+  if (typeof file !== "string" || file.trim() === "") {
+    throw new HttpError(400, "file must be a non-empty string");
+  }
+  const { exportRoot } = await deps.trellis.getRoot();
+  const workspaces = await collectTrellisWorkspaces({
+    workspaceRegistry: deps.workspaceRegistry,
+    sessionQuery: deps.sessionQuery,
+    logger: deps.logger,
+  });
+  try {
+    return await exportTrellisNote({
+      workspaces,
+      targetFile: file,
+      exportRoot,
+      logger: deps.logger,
+    });
+  } catch (error) {
+    if (error instanceof TrellisError) throw new HttpError(400, error.message);
+    throw error;
+  }
+}
+
+/** GET /trellis/config — the current export-root configuration. */
+export async function handleGetTrellisConfig(trellis) {
+  return trellis.getRoot();
+}
+
+/**
+ * POST /trellis/config — set (`{exportRoot: "/abs"}`) or reset
+ * (`{exportRoot: null}`) the note export root.
+ * @param {{ setRoot(input: unknown): Promise<object> }} trellis
+ * @param {unknown} body
+ */
+export async function handleSetTrellisConfig(trellis, body) {
+  try {
+    return await trellis.setRoot(isPlainObjectBody(body) ? body : { exportRoot: body });
+  } catch (error) {
+    if (error instanceof TrellisError) throw new HttpError(400, error.message);
+    throw error;
+  }
+}
+
+function isPlainObjectBody(value) {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
 }
 
 /** Workspace registry read is fail-soft: a deployment without it just loses workspace labels. */

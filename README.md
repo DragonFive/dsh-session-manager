@@ -2,9 +2,10 @@
 
 DeepSeek Harness (DSH) Web 插件：给会话打上 分类 / 标签 / 状态 / 优先级 标注（sidecar 存储），
 提供一个会话看板面板（分组 / 筛选 / 艾森豪威尔四象限 / 行内快捷改状态），
-以及一个 `/prompt`（别名 `/p`）斜杠命令调用的 **提示词库**（YAML 文件维护）。
+一个 `/prompt`（别名 `/p`）斜杠命令调用的 **提示词库**（YAML 文件维护），
+以及一个 **Trellis 里程碑看板**（只读 `.trellis/tasks` 任务树 + 一键导出 ob_note roadmap 笔记）。
 
-不修改任何官方源码，不写官方 session 持久化格式；官方 dsh 升级零冲突。
+不修改任何官方源码，不写官方 session 持久化格式，**绝不写 `.trellis` 下任何文件**；官方 dsh 升级零冲突。
 
 ## 功能
 
@@ -52,11 +53,47 @@ groups:
 `\\` `\uXXXX` 转义）。**不支持**：flow 集合（`[...]` / `{...}`）、锚点/别名、标签、`>` 折叠标量、
 多文档标记（`---`）、缩进中的 tab——遇到即报错（带行号），不静默误解析。含 `#` / `: ` 的标量值请加引号。
 
+### P3：Trellis 里程碑看板 + 笔记导出
+
+- **Trellis 看板**：侧栏第二个面板「Trellis 看板」（`dsm-trellis`，order 600，分支图标）：
+  - 数据 = host 只读扫描各注册 workspace 的 `.trellis/tasks/*/task.json`（**对 `.trellis` 绝对只读**，
+    状态变更仍走 trellis CLI / 会话内工作流）；workspace 注册表 ∪ 会话 cwd 推导（复用 P1 board 的
+    workspace 归属逻辑），含 `.trellis` 的 workspace 才显示；
+  - **父任务卡片**：中文状态徽标（未开始 / 进行中 / 已完成 / 已归档）、priority、进度条 + `n/m`
+    完成度；展开显示子任务表（状态 / 分支 / PR 外链 / 完成时间），支持多级嵌套；
+  - `children` 引用了已不在 `tasks/` 下的任务（被 trellis 归档）显示为「已归档」占位并计入完成度——
+    trellis 的 `cmd_archive` 会先把状态翻成 completed 再移目录，所以"父任务还引用但目录不在"＝已完成；
+  - **孤儿任务**（`parent` 指向不存在的目录）与**读取警告**（损坏 JSON / 超大文件 / 缺 task.json /
+    循环引用）单独列出，不崩溃、不影响其余任务；
+  - 按状态筛选（chips）、手动刷新按钮（重新 fetch，归档/修改 task.json 后即可反映）；
+    父任务按子树最新活动时间（task.json mtime / completedAt）排序；
+  - 无 `.trellis` 的 workspace 显示空态提示（"当前工作区未初始化 Trellis"），不报错。
+- **导出到笔记**：面板头部「导出到笔记」展开导出区：
+  - 展示当前**导出根目录**（默认 `~/ob_note/projects/`，可在导出区直接修改，保存到插件 sidecar
+    `settings.json` 的 `trellisExportRoot` 键，live 生效）；
+  - 输入目标文件名（相对根目录，也可给绝对路径）→ POST 导出 → 官方 `Toast` 成功/失败提示 +
+    内联详情（文件路径 / 备份路径）；
+  - 导出内容 = ob_note roadmap 风格 markdown：每 workspace 一张「📊 总览仪表盘」表格
+    （# | 里程碑 | 状态 | 进度 | 完成时间）+ 每父任务卡片（元信息行 + 子任务表），外加孤儿任务与
+    读取警告小节；
+  - **锚点区块**：导出内容被 `<!-- dsh-session-manager:trellis-export:start -->` …
+    `<!-- …:end -->` 包围——文件已存在且有锚点时**只替换锚点区块，区块外内容逐字节不动**；
+    存在但无锚点则追加到文件末尾；文件不存在则新建含 frontmatter（type: project-tracker）的完整笔记；
+  - **写前备份**：修改已有笔记前先 `copyFile` 生成 `<文件>.bak.<时间戳>`；
+  - **锚点残缺防误伤**：笔记里只有 start 无 end 锚点、或存在多个锚点区块（人工改坏）时拒绝导出（400），
+    而不是猜测替换位置——静默追加会让下一次导出吞掉夹在旧锚点与新区块之间的人工内容；
+  - **路径安全**：目标必须在导出根目录之下——先做词法检查（`../` 逃逸、绝对路径越界拒绝），
+    再对真实路径（`realpath` 展开符号链接后的路径）复查前缀，符号链接绕过同样 400 拒绝；
+    导出根目录与目标都不得位于任何 `.trellis` 目录内（只读纪律），配置时即校验；
+  - **原子写**：临时文件 + `rename` 落盘，中途失败不会留下半个笔记。
+
+
 ## 架构
 
 ```
 浏览器 client 半边（lib/client.js，tsdown 打包，__ModuleLoader__ 加载）
   slots: sidebar.panellist(dsm-board) / main(dsm-board)
+         sidebar.panellist(dsm-trellis, order 600) / main(dsm-trellis)  ← P3 Trellis 看板
          sidebar.workspaces.session.menu.item(dsm.annotate)
          sidebar.workspaces.session.row.action(dsm.annotate-icon)
          shell.overlay(dsm.annotate-overlay)  ← 标注弹窗本体（菜单行随菜单卸载，
@@ -65,6 +102,7 @@ groups:
   commandUi: /prompt、/p（popupSelect；经 ctx.inject(["commandUi"]) 可选注入，
              选中后经 sessions.binding + conversation.input.for 写 composer 草稿）
   services: slots / locale / uiWorkspace（+ 可选 commandUi / sessions / conversation）
+  ui-primitives: Modal / MenuItemButton / Toast（P3 导出成功/失败提示）
         │  同源 fetch（cookie 认证由 Connection carrier 处理）
         ▼
 host 半边（lib/index.js，plain ESM，cordis 插件）
@@ -76,15 +114,21 @@ host 半边（lib/index.js，plain ESM，cordis 插件）
     GET  /api/dsh-session-manager/prompts       提示词库（每次重读 YAML；坏文件 → 400 + 行号）
     GET  /api/dsh-session-manager/prompts/config  当前库路径配置
     POST /api/dsh-session-manager/prompts/config  设置 / 重置库路径（~ 展开，须绝对路径）
+    GET  /api/dsh-session-manager/trellis         各 workspace 任务树（只读扫描 .trellis/tasks；
+                                                   损坏 JSON/超大文件/孤儿/循环 → 警告不崩溃）
+    POST /api/dsh-session-manager/trellis/export  渲染 markdown 写入目标笔记（锚点区块替换 +
+                                                   .bak 备份 + 路径必须在导出根目录下）
+    GET  /api/dsh-session-manager/trellis/config  当前导出根目录
+    POST /api/dsh-session-manager/trellis/config  设置 / 重置导出根目录（~ 展开，须绝对路径）
   读时消费官方服务（缺哪个降级哪个）：
     sessionQuery（必需，缺失时 /board 返回 503）、workspaceRegistry、agents、
-    sessionProjectionCache
+    sessionProjectionCache（/trellis 系列只需 workspaceRegistry ∪ sessionQuery cwd）
         │
         ▼
 sidecar：~/.dsh/storages/dsh-session-manager/
   annotations.json  schemaVersion=1；临时文件 + rename 原子写；损坏时备份并重建
   prompts.yaml      提示词库（首次自动落盘内置示例库；每次请求重读）
-  settings.json     插件自有设置（当前：库文件路径覆盖；原子写）
+  settings.json     插件自有设置（库文件路径覆盖、Trellis 导出根目录覆盖；原子写）
 ```
 
 ## 构建与测试
@@ -94,7 +138,12 @@ pnpm install        # devDependencies 只有 tsdown（peer 会被 pnpm 自动装
 pnpm run build      # tsdown 构建 lib/client.js + 复制 src/host/*.js → lib/
 pnpm run build:client
 pnpm test           # node --test：store/路由、YAML 解析器（含行号报错）、提示词库（默认落盘/
-                    # 重读/路径配置/坏文件 400）、examples 与内置默认库一致性
+                    # 重读/路径配置/坏文件 400）、examples 与内置默认库一致性、
+                    # Trellis 树组装（归档占位/孤儿/循环/互引收养环/多父引用/
+                    # 损坏 JSON/超大文件）、markdown 渲染快照、锚点替换（区块外
+                    # 逐字节不变/无锚点追加/残缺锚点与重复区块拒绝/新建 frontmatter/
+                    # 路径越界与符号链接逃逸 400/.trellis 只读拒绝/备份生成）、
+                    # 导出根目录配置
 ```
 
 要求 Node ≥ 24。React / Cordis / ui-primitives 是平台共享模块（PLATFORM_MODULES 基线），
@@ -109,7 +158,7 @@ node /export/home/maxiaolong/.npm/_npx/ebf017b61addb8bd/node_modules/@deepseek-a
 # 重启 dsh web 后生效；file: 安装是快照式，改代码后需 remove + add 刷新
 ```
 
-安装后：设置 → 插件 应显示 dsh-session-manager 已启用；侧栏出现看板图标；
+安装后：设置 → 插件 应显示 dsh-session-manager 已启用；侧栏出现看板图标与 Trellis 看板图标；
 输入框 `/p` 弹出提示词面板；设置 → Plugins 分区出现「提示词库」标签页。
 
 ## 配置（可选）
@@ -118,6 +167,13 @@ cordis 插件配置（profile 的配置层）支持两个字段：
 
 - `storageDir`：sidecar 目录（默认 `~/.dsh/storages/dsh-session-manager`）；
 - `taxonomy`：首次创建 store 时的分类树种子（结构同 POST /taxonomy；非法值启动即报错）。
+
+运行时配置（走插件自己的路由 + `settings.json` sidecar，改动即时生效，无需重启）：
+
+- 提示词库文件路径：Settings → Plugins →「提示词库」标签页，或 `POST /api/dsh-session-manager/prompts/config`；
+- **Trellis 导出根目录**：Trellis 看板 →「导出到笔记」导出区内直接修改，或
+  `POST /api/dsh-session-manager/trellis/config`（body `{"exportRoot": "/abs/path"}`，`null` 恢复默认
+  `~/ob_note/projects/`；支持 `~` 前缀）。导出目标文件必须位于该根目录之下，越界一律 400。
 
 默认分类树：功能开发（LLM方向 / 生成式推荐）、PR评审、代码学习、测试/杂项；
 状态 待办/进行中/完成；优先级 紧急/重要/一般。
@@ -164,3 +220,12 @@ dsh plugin --profile web remove dsh-session-manager
   SettingsForms）要求 host 侧引入 `@deepseek-ai/schemastery` / `@deepseek-ai/dsh-settings` peer
   依赖；本机 profile 的模块解析图存在多版本混布，故改走 `settings.plugins.tab` slot 自绘表单 +
   自有 `/prompts/config` 路由 + sidecar（`settings.json`）存储，行为等价（live 生效）。
+- **P3 归档占位**：`.trellis/tasks/archive/` 一律不读（含其下 task.json）。父任务 `children[]`
+  引用了目录已不在 `tasks/` 下的任务时，渲染为「已归档」占位并计入完成度 n/m——trellis
+  `cmd_archive` 先把状态翻成 completed 再移目录，"引用还在但目录不在"即"已完成已归档"；
+  代价是占位行没有 title/completedAt 等明细（显示目录名）。
+- **P3 锚点替换**：用 `indexOf` + `slice` 的纯字符串拼接（不用正则、不改行尾），保证锚点区块外
+  的内容逐字节保留；笔记按 utf8 读写。写前 `copyFile` 生成 `<file>.bak.<时间戳>`，正文经
+  临时文件 + rename 原子落盘（store 同款）。
+- **P3 导出 Toast**：成功/失败提示用 ui-primitives 官方 `Toast` 组件（body portal、自动消隐），
+  同时保留内联详情行（含文件与备份路径）便于复制。
