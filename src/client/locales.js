@@ -50,6 +50,18 @@ export const zh = {
   sortAsc: "旧→新",
   saveFailed: "保存失败",
   onlyUnannotated: "只看未标注",
+  promptCommandLabel: "插入提示词",
+  promptCommandDescription: "从提示词库选择一条，追加到输入框草稿（不发送）",
+  promptLibraryEmpty: "提示词库为空（groups 下没有任何条目）",
+  promptMissing: "该提示词已不在库中，请重新打开 /p",
+  promptsSettingsTab: "提示词库",
+  promptsSettingsIntro:
+    "常用提示词库：在输入框输入 /prompt 或 /p 选择一条提示词插入草稿。库文件为 YAML，修改保存后下次打开即生效（无需重启）。",
+  promptsFileLabel: "库文件路径",
+  promptsFileHint: "绝对路径，支持 ~ 前缀；留空使用默认路径",
+  promptsDefaultPrefix: "默认",
+  promptsSaved: "已保存",
+  promptsResetField: "恢复默认",
 };
 
 export const en = {
@@ -98,4 +110,16 @@ export const en = {
   sortAsc: "Old→new",
   saveFailed: "Save failed",
   onlyUnannotated: "Unannotated only",
+  promptCommandLabel: "Insert prompt",
+  promptCommandDescription: "Pick a prompt from the library and append it to the draft (not sent)",
+  promptLibraryEmpty: "The prompt library is empty (no entries under groups)",
+  promptMissing: "This prompt is no longer in the library; reopen /p",
+  promptsSettingsTab: "Prompt Library",
+  promptsSettingsIntro:
+    "Prompt library: type /prompt or /p in the composer to pick a prompt into the draft. The library is a YAML file; edits apply on the next open (no restart needed).",
+  promptsFileLabel: "Library file path",
+  promptsFileHint: "Absolute path (~ prefix supported); empty uses the default",
+  promptsDefaultPrefix: "Default",
+  promptsSaved: "Saved",
+  promptsResetField: "Reset to default",
 };

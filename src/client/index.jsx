@@ -21,12 +21,15 @@ import { AnnotateDialog } from "./annotate-dialog.jsx";
 import { notifyAnnotationsChanged, requestAnnotate, subscribeAnnotate } from "./annotate-bus.js";
 import { BoardPanel } from "./board-panel.jsx";
 import { NS, en, zh } from "./locales.js";
+import { registerPromptCommand } from "./prompt-command.jsx";
+import { PromptsSettingsTab } from "./prompts-settings.jsx";
 import { styles } from "./styles.js";
 
 export const PANEL_ID = "dsm-board";
 export const MENU_ITEM_ID = "dsm.annotate";
 export const ROW_ACTION_ID = "dsm.annotate-icon";
 export const OVERLAY_ID = "dsm.annotate-overlay";
+export const SETTINGS_TAB_ID = "dsm.prompts";
 
 export const inject = ["slots", "locale", "uiWorkspace"];
 
@@ -91,6 +94,26 @@ export function apply(ctx) {
     ctx.slots.register(
       { name: "shell.overlay", id: OVERLAY_ID, order: 500, locale: NS },
       AnnotateOverlayHost,
+    ),
+  );
+
+  // P2: the /prompt (alias /p) prompt-library command. Registered through the
+  // optional commandUi service so a deployment without it just lacks the
+  // command instead of failing the whole plugin.
+  registerPromptCommand(ctx);
+
+  // P2: the prompt-library settings card — one tab of the Settings → Plugins
+  // section. Fails soft: without the section owner the tab never mounts.
+  ctx.slots.inject("settings.plugins.tab", () =>
+    ctx.slots.register(
+      {
+        name: "settings.plugins.tab",
+        id: SETTINGS_TAB_ID,
+        order: 600,
+        label: () => ctx.locale.bind(NS)("promptsSettingsTab"),
+        locale: NS,
+      },
+      PromptsSettingsTab,
     ),
   );
 }

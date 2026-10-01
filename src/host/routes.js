@@ -8,10 +8,13 @@
  */
 import { basename } from "node:path";
 import { ValidationError } from "./schema.js";
+import { PromptsError } from "./prompts.js";
 
 const BOARD_PATH = "/api/dsh-session-manager/board";
 const ANNOTATIONS_PATH = "/api/dsh-session-manager/annotations";
 const TAXONOMY_PATH = "/api/dsh-session-manager/taxonomy";
+const PROMPTS_PATH = "/api/dsh-session-manager/prompts";
+const PROMPTS_CONFIG_PATH = "/api/dsh-session-manager/prompts/config";
 
 const MAX_BODY_BYTES = 1 << 20; // 1 MiB, far above any single annotation
 
@@ -32,6 +35,8 @@ export const ROUTE_PATHS = Object.freeze({
   board: BOARD_PATH,
   annotations: ANNOTATIONS_PATH,
   taxonomy: TAXONOMY_PATH,
+  prompts: PROMPTS_PATH,
+  promptsConfig: PROMPTS_CONFIG_PATH,
 });
 
 /** JSON response helper (standard Fetch API, as the official routes use). */
@@ -159,6 +164,40 @@ export async function handleSetTaxonomy(store, body) {
     return await store.setTaxonomy(body);
   } catch (error) {
     if (error instanceof ValidationError) throw new HttpError(400, error.message);
+    throw error;
+  }
+}
+
+/**
+ * GET /prompts — the current prompt library (re-read from disk per request).
+ * A broken YAML file or an invalid library is an explicit 400; the process
+ * never crashes (PRD R1.2 / AC4).
+ * @param {{ load(): Promise<object> }} library
+ */
+export async function handleGetPrompts(library) {
+  try {
+    return await library.load();
+  } catch (error) {
+    if (error instanceof PromptsError) throw new HttpError(400, error.message);
+    throw error;
+  }
+}
+
+/** GET /prompts/config — the current library path configuration. */
+export async function handleGetPromptsConfig(library) {
+  return library.getConfig();
+}
+
+/**
+ * POST /prompts/config — set or reset the library file path.
+ * @param {{ setConfig(input: unknown): Promise<object> }} library
+ * @param {unknown} body
+ */
+export async function handleSetPromptsConfig(library, body) {
+  try {
+    return await library.setConfig(body);
+  } catch (error) {
+    if (error instanceof PromptsError) throw new HttpError(400, error.message);
     throw error;
   }
 }

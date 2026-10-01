@@ -69,4 +69,9 @@ export const styles = String.raw`
 .dsm-btn-danger{color:var(--dsw-alias-label-error,#e5484d)}
 .dsm-rowaction{appearance:none;border:0;background:none;color:var(--dsw-alias-label-tertiary,#8f8f96);cursor:pointer;padding:2px;border-radius:6px;display:inline-flex;align-items:center}
 .dsm-rowaction:hover{color:var(--dsw-alias-label-primary,#e9e9ec);background:var(--dsw-alias-bg-layer-2,#26262a)}
+.dsm-settings-body{max-width:560px;display:flex;flex-direction:column;gap:12px;padding:14px 2px}
+.dsm-settings-intro{margin:0;font-size:13px;line-height:1.6;color:var(--dsw-alias-label-secondary,#c6c6cc)}
+.dsm-settings-note{font-size:13px;color:var(--dsw-alias-label-tertiary,#8f8f96)}
+.dsm-settings-hint{font-size:12px;line-height:1.5;color:var(--dsw-alias-label-tertiary,#8f8f96);word-break:break-all}
+.dsm-settings-saved{font-size:12px;color:var(--dsw-alias-state-success-primary,#46a758)}
 `;

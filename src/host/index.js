@@ -24,11 +24,15 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import { openStore } from "./store.js";
 import { validateTaxonomy } from "./schema.js";
+import { openPromptsLibrary } from "./prompts.js";
 import {
   ROUTE_PATHS,
   HttpError,
   handleBoard,
   handleGetAnnotations,
+  handleGetPrompts,
+  handleGetPromptsConfig,
+  handleSetPromptsConfig,
   handleSetTaxonomy,
   handleUpsertAnnotation,
   jsonResponse,
@@ -57,6 +61,15 @@ export function apply(ctx, config = {}) {
     file: join(storageDir, "annotations.json"),
     logger,
     seedTaxonomy: config.taxonomy,
+  });
+
+  // Prompt library (P2): the YAML file is re-read on every request, and the
+  // path override lives in the plugin's own settings sidecar so the Settings
+  // card edits are live without a restart.
+  const promptsLibrary = openPromptsLibrary({
+    defaultFile: join(storageDir, "prompts.yaml"),
+    configFile: join(storageDir, "settings.json"),
+    logger,
   });
 
   const deps = () => ({
@@ -103,6 +116,21 @@ export function apply(ctx, config = {}) {
       methods: ["POST"],
       requestBody: "buffered",
       fetch: guarded(async (request) => handleSetTaxonomy(store, await readJsonBody(request))),
+    },
+    {
+      path: ROUTE_PATHS.prompts,
+      methods: ["GET"],
+      requestBody: "buffered",
+      fetch: guarded(() => handleGetPrompts(promptsLibrary)),
+    },
+    {
+      path: ROUTE_PATHS.promptsConfig,
+      methods: ["GET", "POST"],
+      requestBody: "buffered",
+      fetch: guarded(async (request) => {
+        if (request.method === "GET") return handleGetPromptsConfig(promptsLibrary);
+        return handleSetPromptsConfig(promptsLibrary, await readJsonBody(request));
+      }),
     },
   ];
 

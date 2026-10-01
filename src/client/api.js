@@ -49,3 +49,29 @@ export function postTaxonomy(taxonomy) {
     body: JSON.stringify(taxonomy),
   });
 }
+
+/**
+ * GET /api/dsh-session-manager/prompts — the prompt library (re-read from
+ * disk per request, so YAML edits are live on the next /prompt open).
+ * @param {AbortSignal} [signal]
+ */
+export function fetchPrompts(signal) {
+  return request("/api/dsh-session-manager/prompts", { signal });
+}
+
+/** GET /api/dsh-session-manager/prompts/config — current library path config. */
+export function fetchPromptsConfig() {
+  return request("/api/dsh-session-manager/prompts/config");
+}
+
+/**
+ * POST /api/dsh-session-manager/prompts/config — set (`"/abs/path"` or
+ * `"~/…"`) or reset (null → default path) the library file location.
+ * @param {string | null} promptsFile
+ */
+export function postPromptsConfig(promptsFile) {
+  return request("/api/dsh-session-manager/prompts/config", {
+    method: "POST",
+    body: JSON.stringify({ promptsFile }),
+  });
+}
