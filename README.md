@@ -149,17 +149,48 @@ pnpm test           # node --test：store/路由、YAML 解析器（含行号报
 要求 Node ≥ 24。React / Cordis / ui-primitives 是平台共享模块（PLATFORM_MODULES 基线），
 构建时 external，不在本包安装。
 
-## 安装（本地 file: 安装）
+## 安装
+
+### 从 GitHub 安装（推荐，任意机器）
+
+仓库已提交构建产物 `lib/`，clone 下来即可安装，**无需在目标机器构建**（要求 Node ≥ 20 运行 dsh 即可）。
 
 ```bash
-# dsh bin：
-node /export/home/maxiaolong/.npm/_npx/ebf017b61addb8bd/node_modules/@deepseek-ai/dsh/lib/bin.js \
-  plugin --profile web add file:/export/home/maxiaolong/github_xllm/dsh-session-manager
-# 重启 dsh web 后生效；file: 安装是快照式，改代码后需 remove + add 刷新
+# SSH（需配置 GitHub ssh key；私有/公开仓库均可）
+dsh plugin --profile web add git+ssh://git@github.com:DragonFive/dsh-session-manager.git
+
+# 或 HTTPS（公开仓库）
+dsh plugin --profile web add https://github.com/DragonFive/dsh-session-manager.git
+
+# 或指定分支/标签
+dsh plugin --profile web add git+ssh://git@github.com:DragonFive/dsh-session-manager.git#main
 ```
 
-安装后：设置 → 插件 应显示 dsh-session-manager 已启用；侧栏出现看板图标与 Trellis 看板图标；
-输入框 `/p` 弹出提示词面板；设置 → Plugins 分区出现「提示词库」标签页。
+### 本地开发安装（file: 快照）
+
+```bash
+git clone git@github.com:DragonFive/dsh-session-manager.git
+cd dsh-session-manager
+pnpm install && pnpm run build     # 改代码后需要；直接安装用已提交的 lib/ 即可
+dsh plugin --profile web add file:$(pwd)
+# file: 安装是快照式，改代码后需 remove + add 刷新
+```
+
+### ⚠️ 安装后必须重启 dsh web
+
+```bash
+dsh plugin --profile web add ...   # 安装/升级后
+# 然后重启 dsh web 进程（Ctrl+C 后重新 dsh web）
+```
+
+**重启前打开页面会出现「面板一直在加载」**：浏览器侧会经 HMR 提前看到新面板，
+但 host 半边的 `/api/dsh-session-manager/*` 路由只在进程启动时注册——这是 DSH 插件机制的
+固有行为（同 dsh-trellis 的说明：替换已加载的包版本后需重启对应 DSH 进程）。
+升级插件版本同理：`dsh plugin update`（或 remove + add）后必须重启。
+
+安装并重启后：设置 → 插件 应显示 dsh-session-manager 已启用；侧栏出现「会话看板」与
+「Trellis 看板」图标；会话行 "..." 菜单出现「标注…」；输入框 `/p` 弹出提示词面板；
+设置 → Plugins 分区出现「提示词库」标签页。
 
 ## 配置（可选）
 
