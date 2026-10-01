@@ -20,6 +20,7 @@ const EMPTY = {
   tags: [],
   status: DEFAULT_STATUS_ID,
   priority: DEFAULT_PRIORITY_ID,
+  sync: false,
   notes: "",
 };
 
@@ -62,6 +63,7 @@ export function AnnotateDialog({ open, onClose, sessionId, displayTitle, onSaved
                 status: existing.status ?? DEFAULT_STATUS_ID,
                 priority: existing.priority ?? DEFAULT_PRIORITY_ID,
                 taskId: existing.taskId,
+                sync: existing.sync === true,
                 notes: existing.notes ?? "",
               }
             : EMPTY,
@@ -145,6 +147,7 @@ export function AnnotateDialog({ open, onClose, sessionId, displayTitle, onSaved
         status: draft.status,
         priority: draft.priority,
         taskId: draft.taskId ?? null,
+        sync: draft.sync === true,
         notes: notes === "" ? null : notes,
       };
       await postAnnotation({ sessionId, annotation });
@@ -319,6 +322,17 @@ export function AnnotateDialog({ open, onClose, sessionId, displayTitle, onSaved
               <option value={draft.taskId}>{`${draft.taskId}（${t("linkedTaskMissing")}）`}</option>
             )}
           </select>
+        </div>
+        <div className="dsm-dialog-field">
+          <label className="dsm-sync-toggle">
+            <input
+              type="checkbox"
+              checked={draft.sync === true}
+              onChange={(event) => setDraft((prev) => ({ ...prev, sync: event.target.checked }))}
+            />
+            {t("syncFieldLabel")}
+          </label>
+          <span className="dsm-settings-hint">{t("syncFieldHint")}</span>
         </div>
         <div className="dsm-dialog-field">
           <span className="dsm-dialog-label">{t("notes")}</span>

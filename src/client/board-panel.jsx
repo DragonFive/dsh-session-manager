@@ -579,6 +579,11 @@ function BoardRow({ session, taxonomy, maps, taskTitles, t, onOpen, onQuickPatch
             {linkedTaskTitle}
           </span>
         )}
+        {annotation?.sync === true && (
+          <span className="dsm-badge" data-kind="sync" title={t("syncedBadgeTitle")}>
+            {t("syncedBadge")}
+          </span>
+        )}
         {annotation !== null && (
           <>
             {(annotation.tags ?? []).slice(0, 3).map((tag) => (

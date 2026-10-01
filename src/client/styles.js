@@ -60,6 +60,8 @@ export const styles = String.raw`
 .dsm-badge[data-kind=urgent]{border-color:transparent;background:#a23a3a;color:#fff}
 .dsm-badge[data-kind=important]{border-color:transparent;background:#946b2d;color:#fff}
 .dsm-badge[data-kind=archived]{border-color:transparent;background:var(--dsw-alias-bg-module-platform,#3a3a40);color:var(--dsw-alias-label-secondary,#c6c6cc)}
+.dsm-badge[data-kind=sync]{border-color:transparent;background:var(--dsw-alias-state-success-primary,#46a758);color:#fff}
+.dsm-sync-toggle{display:flex;align-items:center;gap:8px;font-size:13px;font-weight:500;color:var(--dsw-alias-label-primary,#e9e9ec);cursor:pointer}
 .dsm-quick{flex:none;display:flex;gap:4px}
 .dsm-quickbtn{appearance:none;border:1px solid var(--dsw-alias-border-l2,#2a2a2e);border-radius:6px;background:none;color:var(--dsw-alias-label-secondary,#c6c6cc);font:inherit;font-size:11px;padding:2px 6px;cursor:pointer}
 .dsm-quickbtn:hover{border-color:var(--dsw-alias-label-dimmed,#77777e)}

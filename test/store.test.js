@@ -410,3 +410,24 @@ test("external sidecar edits are hot-reloaded on the next operation", async () =
   assert.equal(merged.sessions["ext-1"] !== undefined, true);
   assert.equal(merged.sessions["host-1"] !== undefined, true);
 });
+
+test("annotation sync flag: set, keep on partial patch, validate type", async () => {
+  const file = await tempFile();
+  const store = openStore({ file });
+  const snapshot = await store.upsert({
+    sessionId: "session-1",
+    annotation: { status: "todo", priority: "normal", sync: true },
+  });
+  assert.equal(snapshot.sessions["session-1"].sync, true);
+  // Absent on a partial patch: the flag is kept.
+  const second = await store.upsert({ sessionId: "session-1", annotation: { status: "done", priority: "normal" } });
+  assert.equal(second.sessions["session-1"].sync, true);
+  // Turning it off stores false; the transcript stops being exported.
+  const off = await store.upsert({ sessionId: "session-1", annotation: { status: "done", priority: "normal", sync: false } });
+  assert.equal(off.sessions["session-1"].sync, false);
+  // Non-boolean values are rejected.
+  await assert.rejects(
+    store.upsert({ sessionId: "session-2", annotation: { status: "todo", priority: "normal", sync: "yes" } }),
+    /sync/,
+  );
+});

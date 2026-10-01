@@ -174,6 +174,15 @@ export function validateAnnotation(value, taxonomy) {
     const notes = value.notes.trim();
     if (notes !== "") annotation.notes = notes;
   }
+  // Opt-in session export: when true, the sync run copies this session's
+  // transcript into the sync repo (important sessions only — everything
+  // else stays machine-local).
+  if (value.sync !== undefined && value.sync !== null) {
+    if (typeof value.sync !== "boolean") {
+      throw new ValidationError('annotation field "sync" must be a boolean');
+    }
+    annotation.sync = value.sync;
+  }
   return annotation;
 }
 

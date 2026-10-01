@@ -43,11 +43,12 @@ async function seededRepos(dir) {
   return { remote, work };
 }
 
-function managerFor(dir) {
+function managerFor(dir, extras = {}) {
   return openSyncManager({
     configFile: join(dir, "settings.json"),
     deployTarget: join(dir, "deployed", "cordis.patch.yml"),
     logger: silentLogger,
+    ...extras,
   });
 }
 
@@ -162,4 +163,67 @@ test("route handlers: sync GET/POST contract and 400 mapping", async () => {
     () => handleRunSync(emptyManager),
     (error) => error instanceof HttpError && error.status === 400,
   );
+});
+
+test("run() exports only sessions flagged sync:true, with meta and INDEX", async () => {
+  const dir = await tempDir();
+  const { remote, work } = await seededRepos(dir);
+  // Two sessions on disk: one flagged, one not; plus one flagged but missing.
+  const sessionsRoot = join(dir, "sessions-src");
+  const wsDir = join(sessionsRoot, "--ws--");
+  for (const id of ["session-flagged", "session-plain"]) {
+    await mkdir(join(wsDir, id), { recursive: true });
+    await writeFile(join(wsDir, id, "session.v3.jsonl.zstd"), `transcript-bytes-of-${id}`);
+  }
+  const annotationsFile = join(dir, "annotations.json");
+  await writeFile(
+    annotationsFile,
+    JSON.stringify({
+      schemaVersion: 1,
+      taxonomy: { categories: [{ id: "misc", label: "杂项" }], tags: [], statuses: [{ id: "todo", label: "待办" }], priorities: [{ id: "normal", label: "一般" }] },
+      sessions: {
+        "session-flagged": { status: "doing", priority: "important", tags: [], sync: true, taskId: "08-23-llm-pd-architecture-comparison", notes: "架构对比讨论" },
+        "session-plain": { status: "todo", priority: "normal", tags: [], sync: false },
+        "session-missing": { status: "todo", priority: "normal", tags: [], sync: true },
+      },
+    }),
+  );
+  const manager = managerFor(dir, { sessionsSource: sessionsRoot, annotationsFile });
+  await manager.setConfig({ syncRepoPath: work, syncMachine: "mac" });
+
+  const result = await manager.run();
+  const log = result.lines.join("\n");
+  assert.match(log, /导出会话 1 个/);
+  assert.match(log, /1 个找不到记录文件/);
+  // The flagged transcript landed in the repo with meta.json.
+  assert.equal(await readFile(join(work, "sessions", "session-flagged", "session.v3.jsonl.zstd"), "utf8"), "transcript-bytes-of-session-flagged");
+  const meta = JSON.parse(await readFile(join(work, "sessions", "session-flagged", "meta.json"), "utf8"));
+  assert.equal(meta.annotation.taskId, "08-23-llm-pd-architecture-comparison");
+  assert.equal(meta.sourceWorkspace, "--ws--");
+  // The unflagged session never left the machine.
+  await assert.rejects(() => readFile(join(work, "sessions", "session-plain", "meta.json"), "utf8"));
+  // INDEX.md lists the exported session with its task and notes.
+  const index = await readFile(join(work, "sessions", "INDEX.md"), "utf8");
+  assert.match(index, /session-flagged/);
+  assert.match(index, /08-23-llm-pd-architecture-comparison/);
+  assert.match(index, /架构对比讨论/);
+  assert.doesNotMatch(index, /session-plain/);
+  // Everything was committed and pushed in the same run.
+  const remoteLog = (await git(remote, "log", "--format=%s")).stdout;
+  assert.match(remoteLog, /chore\(mac\): sync/);
+  assert.equal((await manager.getConfig()).status.dirty.length, 0);
+});
+
+test("run() skips session export when nothing is flagged", async () => {
+  const dir = await tempDir();
+  const { work } = await seededRepos(dir);
+  const annotationsFile = join(dir, "annotations.json");
+  await writeFile(
+    annotationsFile,
+    JSON.stringify({ schemaVersion: 1, taxonomy: { categories: [{ id: "misc", label: "杂项" }], tags: [], statuses: [{ id: "todo", label: "待办" }], priorities: [{ id: "normal", label: "一般" }] }, sessions: {} }),
+  );
+  const manager = managerFor(dir, { sessionsSource: join(dir, "none"), annotationsFile });
+  await manager.setConfig({ syncRepoPath: work, syncMachine: "mac" });
+  const result = await manager.run();
+  assert.match(result.lines.join("\n"), /没有标记「同步到仓库」的会话/);
 });

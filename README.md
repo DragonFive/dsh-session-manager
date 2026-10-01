@@ -140,6 +140,11 @@ groups:
     commit（`chore(<机器名>): sync <时间>`）+ push；每步日志在面板内展示。
   - **状态展示**：仓库就绪与否、未提交改动数（含文件名预览）、最近提交。
   - host 原生 spawn git（零依赖）；仓库预期只含 `apiKeyEnv` 引用，**密钥零入仓**。
+- **重要会话导出（opt-in）**：标注弹窗新增「同步到仓库」开关（annotation `sync` 布尔字段，
+  看板行显示绿色「已同步」徽章）。打标的会话在每次同步时把完整记录导出到仓库
+  `sessions/<sessionId>/`（zstd 压缩正本 + meta.json 元信息），并自动重建可浏览的
+  `sessions/INDEX.md`（会话 / 任务 / 状态 / 备注 / 导出时间表格；`zstd -dc` 查看正本）。
+  **未打标的会话绝不离开本机**；单文件超 32MB 跳过并在日志说明。
 - **分工**：机械同步用本标签（或 `scripts/sync.sh` / cron）；判断型工作（冲突取舍、
   memory 变更日志整理、变化解读）留给会话侧「同步 dsh 配置」提示词——见 dsh-sync README。
 - 插件未来方向（未做）：spawn `dsh headless` 让按钮触发一次性 agent 任务
