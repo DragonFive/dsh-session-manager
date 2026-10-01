@@ -126,6 +126,25 @@ groups:
   准确性最高，热重载 + 脚本就是把这条路径打通。
 - 关联关系是纯 sidecar 数据：删掉标注即解除关联，不影响 `.trellis` 任何内容。
 
+### P5：配置同步（同步标签页）
+
+- **「同步」标签**（看板面板第四个标签）：把 提示词 / provider 配置 / 机器记忆 同步到一个 git 仓库
+  （dsh-sync 约定布局：`config/cordis.patch.<机器名>.yml` + `prompts.yaml` + `memory/`）。
+  - **可配置**：仓库路径（本地 checkout）、仓库地址（路径不是 git 仓库时自动 clone）、
+    SSH 密钥（可选，`GIT_SSH_COMMAND -i` 指定，留空用系统默认）、机器名（留空按 hostname
+    自动识别）；配置存插件 settings sidecar，改完即生效。
+  - **一键同步** = pull（--rebase --autostash，空仓库自动跳过）→ 部署本机
+    `config/cordis.patch.<机器名>.yml` 到 `~/.dsh/profiles/web/cordis.patch.yml`
+    （有差异先备份 `.bak.<时间戳>`）→ `prompts.yaml` 存在时自动把提示词库
+    `promptsFile` 指向仓库文件（看板编辑器从此直接写仓库工作树）→ 本地有改动则
+    commit（`chore(<机器名>): sync <时间>`）+ push；每步日志在面板内展示。
+  - **状态展示**：仓库就绪与否、未提交改动数（含文件名预览）、最近提交。
+  - host 原生 spawn git（零依赖）；仓库预期只含 `apiKeyEnv` 引用，**密钥零入仓**。
+- **分工**：机械同步用本标签（或 `scripts/sync.sh` / cron）；判断型工作（冲突取舍、
+  memory 变更日志整理、变化解读）留给会话侧「同步 dsh 配置」提示词——见 dsh-sync README。
+- 插件未来方向（未做）：spawn `dsh headless` 让按钮触发一次性 agent 任务
+  （如全自动关联巡检）。
+
 
 ## 架构
 

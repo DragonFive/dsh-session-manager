@@ -110,6 +110,27 @@ export function fetchTrellisConfig() {
   return request("/api/dsh-session-manager/trellis/config");
 }
 
+/** GET /api/dsh-session-manager/sync — sync settings + repo status. */
+export function fetchSync() {
+  return request("/api/dsh-session-manager/sync");
+}
+
+/**
+ * POST /api/dsh-session-manager/sync/config — set or reset the sync
+ * settings ({syncRepoPath, syncRepoUrl, syncSshKey, syncMachine}; null/"" resets).
+ */
+export function postSyncConfig(config) {
+  return request("/api/dsh-session-manager/sync/config", {
+    method: "POST",
+    body: JSON.stringify(config),
+  });
+}
+
+/** POST /api/dsh-session-manager/sync/run — one full sync, returns the log. */
+export function postSyncRun() {
+  return request("/api/dsh-session-manager/sync/run", { method: "POST" });
+}
+
 /**
  * POST /api/dsh-session-manager/trellis/config — set or reset
  * (null → default) the note export root.

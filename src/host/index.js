@@ -25,6 +25,7 @@ import { join } from "node:path";
 import { openStore } from "./store.js";
 import { validateTaxonomy } from "./schema.js";
 import { openPromptsLibrary } from "./prompts.js";
+import { openSyncManager } from "./sync.js";
 import { openTrellisExport } from "./trellis.js";
 import {
   ROUTE_PATHS,
@@ -33,9 +34,12 @@ import {
   handleGetAnnotations,
   handleGetPrompts,
   handleGetPromptsConfig,
+  handleGetSync,
   handleGetTrellisConfig,
+  handleRunSync,
   handleSavePrompts,
   handleSetPromptsConfig,
+  handleSetSyncConfig,
   handleSetTaxonomy,
   handleSetTrellisConfig,
   handleTrellis,
@@ -82,6 +86,16 @@ export function apply(ctx, config = {}) {
   // `trellisExportRoot`; re-read per request so config edits are live.
   const trellisExport = openTrellisExport({
     configFile: join(storageDir, "settings.json"),
+    logger,
+  });
+
+  // Config sync (P5): keep prompts / provider config / machine memory in a
+  // git repo. Same settings sidecar (keys syncRepoPath / syncRepoUrl /
+  // syncSshKey / syncMachine); the machine config deploys to the web
+  // profile's user patch layer.
+  const syncManager = openSyncManager({
+    configFile: join(storageDir, "settings.json"),
+    deployTarget: join(homedir(), ".dsh", "profiles", "web", "cordis.patch.yml"),
     logger,
   });
 
@@ -170,6 +184,24 @@ export function apply(ctx, config = {}) {
         if (request.method === "GET") return handleGetTrellisConfig(trellisExport);
         return handleSetTrellisConfig(trellisExport, await readJsonBody(request));
       }),
+    },
+    {
+      path: ROUTE_PATHS.sync,
+      methods: ["GET"],
+      requestBody: "buffered",
+      fetch: guarded(() => handleGetSync(syncManager)),
+    },
+    {
+      path: ROUTE_PATHS.syncConfig,
+      methods: ["POST"],
+      requestBody: "buffered",
+      fetch: guarded(async (request) => handleSetSyncConfig(syncManager, await readJsonBody(request))),
+    },
+    {
+      path: ROUTE_PATHS.syncRun,
+      methods: ["POST"],
+      requestBody: "buffered",
+      fetch: guarded(() => handleRunSync(syncManager)),
     },
   ];
 
