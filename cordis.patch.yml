@@ -1,0 +1,5 @@
+# dsh-session-manager bundle patch: one insert over the composed profile tree.
+# Service injection (connection fetch routes) is declared by the plugin module.
+- insert:
+    - id: dsh-session-manager
+      name: dsh-session-manager
