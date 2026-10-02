@@ -7,7 +7,7 @@ import { strict as assert } from "node:assert";
 import { execFile } from "node:child_process";
 import { mkdtemp, mkdir, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { promisify } from "node:util";
 import test from "node:test";
 
@@ -410,3 +410,42 @@ test(
     assert.equal(JSON.parse(restoredText.split("\n")[0]).cwd, "/home/maxl/code/repo-b");
   },
 );
+
+test("deploy loss guard: live-only config lines block the deploy", async () => {
+  const dir = await tempDir();
+  const { work } = await seededRepos(dir);
+  // The machine template deliberately lacks the provider the live config has.
+  await writeFile(
+    join(work, "config", "cordis.patch.mac.yml"),
+    '- id: agent-default-model\n  config:\n    provider: glm53-h200\n',
+  );
+  const deployTarget = join(dir, "deployed", "cordis.patch.yml");
+  await mkdir(dirname(deployTarget), { recursive: true });
+  await writeFile(deployTarget, '- id: agent-default-model\n  config:\n    provider: glm53-flash-195\n');
+  const manager = openSyncManager({
+    configFile: join(dir, "settings-guard.json"),
+    deployTarget,
+    sessionsSource: join(dir, "sessions-guard"),
+    logger: silentLogger,
+  });
+  await manager.setConfig({ syncRepoPath: work, syncMachine: "mac" });
+  await assert.rejects(
+    () => manager.run(),
+    (error) => {
+      assert.match(error.message, /部署已阻止/);
+      assert.match(error.message, /glm53-flash-195/);
+      return true;
+    },
+  );
+  // The live file is untouched after the blocked deploy.
+  const live = await readFile(deployTarget, "utf8");
+  assert.match(live, /glm53-flash-195/);
+  // Once the template gains the same lines, the deploy goes through.
+  await writeFile(
+    join(work, "config", "cordis.patch.mac.yml"),
+    '- id: agent-default-model\n  config:\n    provider: glm53-h200\n    extra: glm53-flash-195\n',
+  );
+  await writeFile(deployTarget, '- id: agent-default-model\n  config:\n    provider: glm53-h200\n    extra: glm53-flash-195\n');
+  const result = await manager.run();
+  assert.match(result.lines.join("\n"), /provider 配置与仓库一致/);
+});

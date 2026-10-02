@@ -136,6 +136,36 @@ export function expandSyncPath(input) {
 }
 
 /**
+ * Lines present in `live` but missing from `template` — a count-aware
+ * multiset difference over trimmed, non-empty, non-comment lines. Order
+ * and reformatting do not matter; any content the deploy would delete
+ * (a provider block, a default-model value, a theme preference …) shows
+ * up here. Used by the deploy loss guard.
+ * @param {string} live
+ * @param {string} template
+ * @returns {string[]}
+ */
+function significantLinesOnlyIn(live, template) {
+  const significant = (text) =>
+    text
+      .split("\n")
+      .map((line) => line.trim())
+      .filter((line) => line !== "" && !line.startsWith("#"));
+  const counts = new Map();
+  for (const line of significant(template)) counts.set(line, (counts.get(line) ?? 0) + 1);
+  const only = [];
+  for (const line of significant(live)) {
+    const left = counts.get(line) ?? 0;
+    if (left > 0) {
+      counts.set(line, left - 1);
+    } else {
+      only.push(line);
+    }
+  }
+  return only;
+}
+
+/**
  * Open the sync manager.
  * @param {{ configFile: string, deployTarget: string, sessionsSource?: string,
  *           annotationsFile?: string, logger?: { warn(message: string): void } }} options
@@ -492,6 +522,21 @@ export function openSyncManager({
       if (machineConfigText !== null) {
         const live = await readFile(deployTarget, "utf8").catch(() => null);
         if (live !== machineConfigText) {
+          // Loss guard: this exact overwrite silently deleted a provider
+          // that lived only in the machine's live config (glm53-flash-195,
+          // twice — once per machine) and flipped the default model with
+          // it. When the live file carries content the template lacks,
+          // refuse and name what would be lost; the user merges it into
+          // the template (or drops it from live deliberately) and re-runs.
+          const liveOnly = live === null ? [] : significantLinesOnlyIn(live, machineConfigText);
+          if (liveOnly.length > 0) {
+            throw new SyncError(
+              `部署已阻止：本机 live 配置里有 ${liveOnly.length} 行内容不在仓库模板中，直接部署会丢失它们。` +
+                `请先把下列内容合并进 ${machineConfig}（或确认 live 里可以删），再点同步：\n  ` +
+                liveOnly.slice(0, 8).join("\n  ") +
+                (liveOnly.length > 8 ? `\n  …等共 ${liveOnly.length} 行` : ""),
+            );
+          }
           if (live !== null) {
             const backup = `${deployTarget}.bak.${new Date().toISOString().replace(/[:.]/g, "-")}`;
             await copyFile(deployTarget, backup).catch(() => {});
