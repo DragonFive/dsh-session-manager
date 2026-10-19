@@ -32,7 +32,7 @@
   "license": "MIT",
   "engines": {
     "node": ">=24",
-    "dsh": "^0.1.7-alpha.2"
+    "dsh": ">=0.1.7-alpha.2 <0.3.0"
   },
   "peerDependencies": {
     "@deepseek-ai/cordis": "^4.0.4",
